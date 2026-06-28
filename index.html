@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PRIME DOCS</title>
+<style>
+  html,body{margin:0;height:100%;background:#e9e7e0;overflow:hidden}
+  #app{position:fixed;inset:0;width:100%;height:100%;border:0}
+  #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;
+      font-family:system-ui,-apple-system,sans-serif;color:#6E7480;background:#e9e7e0;font-size:15px}
+</style>
+</head>
+<body>
+<div id="ld">Загрузка PRIME DOCS…</div>
+<iframe id="app" allow="web-share; clipboard-write; clipboard-read"></iframe>
+<script>
+  var EXEC = "https://script.google.com/macros/s/AKfycbz1tVbAOh09oHMLEfuS5heehP68YDC-kySIkRq6wDByrIQNg6_O-TyvasetcCcO8G4A/exec";
+  var app = document.getElementById('app');
+  app.addEventListener('load', function () { var l = document.getElementById('ld'); if (l) l.style.display = 'none'; });
+  app.src = EXEC;
+  // Переходы между экранами приложение шлёт сюда (postMessage), а обёртка меняет src своего iframe —
+  // так навигация остаётся ВНУТРИ обёртки (страница Google не открывается напрямую → плашки нет).
+  window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (d && typeof d.pdnav === 'string' && /^(\?[\w=&%.\-]*)?$/.test(d.pdnav)) {
+      app.src = EXEC + d.pdnav;
+    }
+  });
+</script>
+</body>
+</html>
