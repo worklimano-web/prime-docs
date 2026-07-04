@@ -1,0 +1,17 @@
+{
+  "name": "PRIME DOCS",
+  "short_name": "PRIME DOCS",
+  "description": "Журнал строительного документооборота: проекты, сметы, офферы, инвойсы.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "ru",
+  "background_color": "#e9e7e0",
+  "theme_color": "#1B2A4E",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
