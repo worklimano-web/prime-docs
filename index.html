@@ -1,7 +1,4 @@
-<!doctype html>
-<html lang="ru">
-<head>
-<meta charset="utf-8">
+<!doctype html><html lang="ru"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PRIME DOCS</title>
 <link rel="manifest" href="manifest.json">
@@ -13,28 +10,47 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
   html,body{margin:0;height:100%;background:#e9e7e0;overflow:hidden}
-  #app{position:fixed;inset:0;width:100%;height:100%;border:0}
+  .app{position:fixed;inset:0;width:100%;height:100%;border:0}
   #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;
       font-family:system-ui,-apple-system,sans-serif;color:#6E7480;background:#e9e7e0;font-size:15px}
-</style>
-</head>
+</style></head>
 <body>
 <div id="ld">Загрузка PRIME DOCS…</div>
-<iframe id="app" allow="web-share; clipboard-write; clipboard-read"></iframe>
+<div id="stage"></div>
 <script>
-  var EXEC = "https://script.google.com/macros/s/AKfycbz1tVbAOh09oHMLEfuS5heehP68YDC-kySIkRq6wDByrIQNg6_O-TyvasetcCcO8G4A/exec";
-  var app = document.getElementById('app');
-  app.addEventListener('load', function () { var l = document.getElementById('ld'); if (l) l.style.display = 'none'; });
-  app.src = EXEC;
-  // Переходы между экранами приложение шлёт сюда (postMessage), а обёртка меняет src своего iframe —
-  // так навигация остаётся ВНУТРИ обёртки (страница Google не открывается напрямую → плашки нет).
-  window.addEventListener('message', function (e) {
-    var d = e.data;
-    if (d && typeof d.pdnav === 'string' && /^(\?[\w=&%.\-]*)?$/.test(d.pdnav)) {
-      app.src = EXEC + d.pdnav;
-    }
-  });
-  if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(function () {}); }
-</script>
-</body>
-</html>
+/* A9 ТЁПЛЫЙ ШЕЛЛ: 3 iframe (journal/estimate/assemble), переключаем видимый + шлём целевому pdgo вместо
+   перезагрузки. Ключевое: pdgo шлём на сохранённое из pdready окно app (e.source), НЕ на frame.contentWindow
+   (2-уровневый GAS-iframe: contentWindow=sandbox, до кода app не доходит — проверено на форке).
+   Все 3 экрана — WARM (у каждого приёмник pdgo). Не-WARM экран (если появится) грузился бы перезагрузкой. */
+var EXEC = "https://script.google.com/macros/s/AKfycbz1tVbAOh09oHMLEfuS5heehP68YDC-kySIkRq6wDByrIQNg6_O-TyvasetcCcO8G4A/exec";
+var stage = document.getElementById('stage');
+var WARM = { journal:1, assemble:1, estimate:1 };   // все 3 экрана тёплые (у каждого приёмник pdgo)
+var SCREENS = { journal:null, estimate:null, assemble:null };
+function screenOf(qs){ qs=qs||''; if(/[?&]estimate=1/.test(qs))return 'estimate'; if(/[?&]assemble=1/.test(qs))return 'assemble'; return 'journal'; }
+function bootUrl(screen, qs){ if(screen==='journal') return EXEC + (/[?&]openProj=/.test(qs||'')?qs:''); return EXEC + qs; }
+function makeFrame(screen, qs){
+  var f=document.createElement('iframe'); f.className='app'; f.style.display='none';
+  f.setAttribute('allow','web-share; clipboard-write; clipboard-read');
+  var rec={ frame:f, appWin:null, ready:false, pending:null }; SCREENS[screen]=rec;
+  f.addEventListener('load', function(){ var l=document.getElementById('ld'); if(l) l.style.display='none'; });
+  f.src=bootUrl(screen, qs); stage.appendChild(f); return rec;
+}
+function showFrame(screen){ Object.keys(SCREENS).forEach(function(k){ var r=SCREENS[k]; if(r) r.frame.style.display=(k===screen?'block':'none'); }); }
+function sendGo(rec, qs){ if(rec.ready && rec.appWin){ rec.appWin.postMessage({pdgo:qs},'*'); } else { rec.pending=qs; } }
+function route(qs){
+  var screen=screenOf(qs); var rec=SCREENS[screen];
+  if(!rec){ makeFrame(screen, qs); showFrame(screen); return; }               // холодный старт сразу на нужном qs
+  if(WARM[screen]){ showFrame(screen); sendGo(rec, qs); }                      // тёплый — навигация внутрь без релоада
+  else { rec.frame.src=bootUrl(screen, qs); rec.ready=false; rec.appWin=null; showFrame(screen); }   // не-тёплый (estimate)
+}
+window.addEventListener('message', function(ev){
+  var d=ev.data; if(!d) return;
+  if(typeof d.pdnav==='string' && /^(\?[\w=&%.\-]*)?$/.test(d.pdnav)){ route(d.pdnav); return; }
+  if(d.pdready && d.screen && SCREENS[d.screen]){
+    var rec=SCREENS[d.screen]; rec.appWin=ev.source; rec.ready=true;           // окно app (не contentWindow)
+    if(rec.pending){ ev.source.postMessage({pdgo:rec.pending},'*'); rec.pending=null; }
+  }
+});
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(function(){}); }
+route('');   // первый заход — журнал
+</script></body></html>
