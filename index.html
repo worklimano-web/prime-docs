@@ -37,14 +37,19 @@ function makeFrame(screen, qs){
 }
 function showFrame(screen){ Object.keys(SCREENS).forEach(function(k){ var r=SCREENS[k]; if(r) r.frame.style.display=(k===screen?'block':'none'); }); }
 function sendGo(rec, qs){ if(rec.ready && rec.appWin){ rec.appWin.postMessage({pdgo:qs},'*'); } else { rec.pending=qs; } }
-function route(qs){
+var HIST=[];   // стек показанных qs — «Назад» = вернуться на предыдущий (истинная история переходов)
+function pushHist(qs){ qs=qs||''; if(HIST[HIST.length-1]!==qs) HIST.push(qs); if(HIST.length>40) HIST.shift(); }
+function route(qs, isBack){
   var screen=screenOf(qs); var rec=SCREENS[screen];
-  if(!rec){ makeFrame(screen, qs); showFrame(screen); return; }               // холодный старт сразу на нужном qs
-  if(WARM[screen]){ showFrame(screen); sendGo(rec, qs); }                      // тёплый — навигация внутрь без релоада
-  else { rec.frame.src=bootUrl(screen, qs); rec.ready=false; rec.appWin=null; showFrame(screen); }   // не-тёплый (estimate)
+  if(!rec){ makeFrame(screen, qs); showFrame(screen); }                        // холодный старт сразу на нужном qs
+  else if(WARM[screen]){ showFrame(screen); sendGo(rec, qs); }                 // тёплый — навигация внутрь без релоада
+  else { rec.frame.src=bootUrl(screen, qs); rec.ready=false; rec.appWin=null; showFrame(screen); }   // не-тёплый
+  if(!isBack) pushHist(qs);
 }
+function goBack(){ if(HIST.length>1){ HIST.pop(); route(HIST[HIST.length-1], true); } else { route('', true); } }   // некуда → журнал
 window.addEventListener('message', function(ev){
   var d=ev.data; if(!d) return;
+  if(d.pdback){ goBack(); return; }                                            // «Назад» из экрана → предыдущий по стеку
   if(typeof d.pdnav==='string' && /^(\?[\w=&%.\-]*)?$/.test(d.pdnav)){ route(d.pdnav); return; }
   if(d.pdready && d.screen && SCREENS[d.screen]){
     var rec=SCREENS[d.screen]; rec.appWin=ev.source; rec.ready=true;           // окно app (не contentWindow)
