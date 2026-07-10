@@ -47,8 +47,24 @@ function route(qs, isBack){
   if(!isBack) pushHist(qs);
 }
 function goBack(){ if(HIST.length>1){ HIST.pop(); route(HIST[HIST.length-1], true); } else { route('', true); } }   // некуда → журнал
+/* D139: печать без баннера — грузим /exec autoprint в отдельный iframe (в iframe баннера нет), приложение
+   сигналит pdprintready → печатаем сверху (github.io). Тёплые экраны прячем, чтобы печаталась только форма. */
+var _pf=null, _pfTimer=null;
+function cleanupPrint(){ if(_pfTimer){ clearTimeout(_pfTimer); _pfTimer=null; } if(_pf){ try{ _pf.remove(); }catch(e){} _pf=null; } var s=document.getElementById('stage'); if(s) s.style.display=''; }
+function doPrint(){ if(!_pf) return; if(_pfTimer){ clearTimeout(_pfTimer); _pfTimer=null; } try{ window.print(); }catch(e){} setTimeout(cleanupPrint, 1500); }
+function startPrint(qs){
+  cleanupPrint();
+  var s=document.getElementById('stage'); if(s) s.style.display='none';
+  var f=document.createElement('iframe'); f.id='printframe'; f.setAttribute('allow','web-share');
+  f.style.cssText='position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:9999';
+  f.src=EXEC+qs; document.body.appendChild(f); _pf=f;
+  _pfTimer=setTimeout(doPrint, 4000);   // фолбэк, если pdprintready не пришёл
+}
+window.addEventListener('afterprint', function(){ setTimeout(cleanupPrint, 200); });
 window.addEventListener('message', function(ev){
   var d=ev.data; if(!d) return;
+  if(typeof d.pdprint==='string'){ startPrint(d.pdprint); return; }              // D139: печать через обёртку
+  if(d.pdprintready){ doPrint(); return; }
   if(d.pdback){ goBack(); return; }                                            // «Назад» из экрана → предыдущий по стеку
   if(typeof d.pdnav==='string' && /^(\?[\w=&%.\-]*)?$/.test(d.pdnav)){ route(d.pdnav); return; }
   if(d.pdready && d.screen && SCREENS[d.screen]){
