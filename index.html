@@ -22,7 +22,7 @@
    перезагрузки. Ключевое: pdgo шлём на сохранённое из pdready окно app (e.source), НЕ на frame.contentWindow
    (2-уровневый GAS-iframe: contentWindow=sandbox, до кода app не доходит — проверено на форке).
    Все 3 экрана — WARM (у каждого приёмник pdgo). Не-WARM экран (если появится) грузился бы перезагрузкой. */
-var EXEC = "https://script.google.com/macros/s/AKfycbz1tVbAOh09oHMLEfuS5heehP68YDC-kySIkRq6wDByrIQNg6_O-TyvasetcCcO8G4A/exec";
+var EXEC = "https://script.google.com/macros/s/AKfycbyQmZhfbPsO1PxDvNXYLcywIQOsjyzCOLX77iHbi7IA6TflNAxwTgx6gAvUr4NnkYlu/exec";
 var stage = document.getElementById('stage');
 var WARM = { journal:1, assemble:1, estimate:1 };   // все 3 экрана тёплые (у каждого приёмник pdgo)
 var SCREENS = { journal:null, estimate:null, assemble:null };
