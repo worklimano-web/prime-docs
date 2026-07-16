@@ -53,8 +53,14 @@ var EXEC = "https://script.google.com/macros/s/AKfycbyQmZhfbPsO1PxDvNXYLcywIQOsj
 var stage = document.getElementById('stage');
 var WARM = { journal:1, assemble:1, estimate:1 };   // все 3 экрана тёплые (у каждого приёмник pdgo)
 var SCREENS = { journal:null, estimate:null, assemble:null };
+/* D179 ЗАМОК: приложение закрыто кодом. Пропуск выдаёт сервер после ввода кода; ОБЁРТКА его помнит
+   (localStorage этого сайта) и подставляет к КАЖДОМУ адресу /exec — экраны и печать. Нет пропуска →
+   приложение само покажет окно ввода кода и пришлёт {pdtoken} наверх (см. обработчик сообщений).
+   Замок выключен → пропуска нет → withTok ничего не меняет, всё работает как раньше. */
+var PD_TOKEN = ''; try{ PD_TOKEN = localStorage.getItem('pd_token') || ''; }catch(e){}
+function withTok(qs){ qs=qs||''; if(!PD_TOKEN) return qs; if(/[?&]t=/.test(qs)) return qs; return qs + (qs.indexOf('?')===0?'&':'?') + 't=' + encodeURIComponent(PD_TOKEN); }
 function screenOf(qs){ qs=qs||''; if(/[?&]estimate=1/.test(qs))return 'estimate'; if(/[?&]assemble=1/.test(qs))return 'assemble'; return 'journal'; }
-function bootUrl(screen, qs){ if(screen==='journal') return EXEC + (/[?&]openProj=/.test(qs||'')?qs:''); return EXEC + qs; }
+function bootUrl(screen, qs){ if(screen==='journal') return EXEC + withTok(/[?&]openProj=/.test(qs||'')?qs:''); return EXEC + withTok(qs); }
 function makeFrame(screen, qs){
   var f=document.createElement('iframe'); f.className='app'; f.style.display='none';
   f.setAttribute('allow','web-share; clipboard-write; clipboard-read');
@@ -119,12 +125,22 @@ function startPrint(qs){
   var s=document.getElementById('stage'); if(s) s.style.display='none';
   var f=document.createElement('iframe'); f.id='printframe'; f.setAttribute('allow','web-share');
   f.style.cssText='position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:9999';
-  f.src=EXEC+qs; document.body.appendChild(f); _pf=f;
+  f.src=EXEC+withTok(qs); document.body.appendChild(f); _pf=f;   // D179: пропуск нужен и печатной рамке
   _pfTimer=setTimeout(doPrint, 4000);   // фолбэк, если pdprintready не пришёл
 }
 window.addEventListener('afterprint', function(){ setTimeout(cleanupPrint, 200); });
 window.addEventListener('message', function(ev){
   var d=ev.data; if(!d) return;
+  if(typeof d.pdtoken==='string'){                                              // D179: код принят — запоминаем пропуск и пересобираем рамки уже с ним
+    /* Отправителя проверяем: приложение живёт на google — чужая страница не должна подсовывать пропуск
+       (находка ревью: обработчик принимал сообщение от кого угодно). Подделка пропуска сервером всё равно
+       отбивается, но чужое сообщение могло бы затереть рабочий пропуск и выбить владельца. */
+    var org = String(ev.origin||'');
+    if(!/^https:\/\/([a-z0-9-]+\.)*(google\.com|googleusercontent\.com)$/.test(org)) return;
+    PD_TOKEN=d.pdtoken; try{ localStorage.setItem('pd_token', PD_TOKEN); }catch(e){}
+    try{ location.reload(); }catch(e){}
+    return;
+  }
   if(typeof d.pdprint==='string'){ startPrint(d.pdprint); return; }              // D139: печать через обёртку
   if(d.pdprintready){ doPrint(); return; }
   if(d.pdback){ goBack(); return; }                                            // «Назад» из экрана → предыдущий по стеку
