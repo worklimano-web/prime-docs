@@ -14,6 +14,8 @@
      ВЕРХНЕГО документа (этой обёртки). Без этого браузер печатал Letter (612×792) вместо A4 → «не тот вид».
      Поля НЕ задаём: у бланка сметы и бланка документа они разные, каждый держит свои отступы сам. */
   @page{size:A4 portrait}
+  /* Фон обёртки (#e9e7e0) при печати заливал бы всю страницу серым — верхний документ печатается тоже. */
+  @media print{ html,body{background:#fff!important} }
   :root{--barh:34px}
   .app{position:fixed;inset:0;width:100%;height:100%;border:0}
   #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;
