@@ -10,12 +10,33 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
   html,body{margin:0;height:100%;background:#e9e7e0;overflow:hidden}
+  :root{--barh:34px}
   .app{position:fixed;inset:0;width:100%;height:100%;border:0}
   #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;
       font-family:system-ui,-apple-system,sans-serif;color:#6E7480;background:#e9e7e0;font-size:15px}
+  /* MULTI: панель открытых экранов — видна ТОЛЬКО когда открыто 2+ экрана (при одном всё как раньше) */
+  .bar{position:fixed;top:0;left:0;right:0;z-index:5;display:none;align-items:center;gap:4px;box-sizing:border-box;
+       padding:0 4px;padding-top:env(safe-area-inset-top);height:calc(var(--barh) + env(safe-area-inset-top));
+       background:#1B2A4E;color:#fff;font:600 12px system-ui,-apple-system,sans-serif}
+  body.multi .bar{display:flex}
+  body.multi .app{top:calc(var(--barh) + env(safe-area-inset-top));height:calc(100% - var(--barh) - env(safe-area-inset-top))}
+  body.printing .bar{display:none}
+  .bar .nav{flex:none;width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;
+            cursor:pointer;font-size:18px;line-height:1;opacity:.9;user-select:none}
+  .bar .nav:active{background:rgba(255,255,255,.18)}
+  .bar .nav.off{opacity:.28}
+  .bar .tabs{flex:1;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+  .bar .tabs::-webkit-scrollbar{display:none}
+  .bar .tab{flex:none;display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;cursor:pointer;
+            white-space:nowrap;background:rgba(255,255,255,.14)}
+  .bar .tab.on{background:#C9A961;color:#1B2A4E}
+  .bar .tab i{font-style:normal;opacity:.7;font-size:12px;padding:0 2px}
+  .bar .tab i:active{opacity:1}
+  @media print{.bar{display:none!important}}
 </style></head>
 <body>
 <div id="ld">Загрузка PRIME DOCS…</div>
+<div class="bar" id="bar"><span class="nav" id="prev">‹</span><span class="tabs" id="tabs"></span><span class="nav" id="next">›</span></div>
 <div id="stage"></div>
 <script>
 /* A9 ТЁПЛЫЙ ШЕЛЛ: 3 iframe (journal/estimate/assemble), переключаем видимый + шлём целевому pdgo вместо
@@ -36,6 +57,39 @@ function makeFrame(screen, qs){
   f.src=bootUrl(screen, qs); stage.appendChild(f); return rec;
 }
 function showFrame(screen){ Object.keys(SCREENS).forEach(function(k){ var r=SCREENS[k]; if(r) r.frame.style.display=(k===screen?'block':'none'); }); }
+/* MULTI: несколько ОТКРЫТЫХ экранов (смета / её документ / журнал) — вкладки + ‹ › + ✕ закрыть.
+   Экраны уже тёплые → переключение мгновенное и СОХРАНЯЕТ состояние (switchTo не шлёт pdgo).
+   Свайп пальцем поверх iframe поймать нельзя (cross-origin: события внутрь не всплывают) → листаем стрелками/вкладками.
+   Панель появляется ТОЛЬКО при 2+ открытых экранах — при одном поведение как раньше. */
+var OPEN=[], CUR='';
+var LBL={ journal:'Журнал', estimate:'Смета', assemble:'Документ' };
+function renderBar(){
+  document.body.classList.toggle('multi', OPEN.length>1);
+  var t=document.getElementById('tabs'); if(!t) return;
+  t.innerHTML=OPEN.map(function(s){
+    return '<span class="tab'+(s===CUR?' on':'')+'" data-s="'+s+'">'+(LBL[s]||s)+(s==='journal'?'':'<i data-x="'+s+'" title="Закрыть">✕</i>')+'</span>';
+  }).join('');
+  var i=OPEN.indexOf(CUR), pv=document.getElementById('prev'), nx=document.getElementById('next');
+  if(pv) pv.className='nav'+(i<=0?' off':'');
+  if(nx) nx.className='nav'+(i<0||i>=OPEN.length-1?' off':'');
+}
+function openAdd(s){ if(OPEN.indexOf(s)<0) OPEN.push(s); CUR=s; renderBar(); }
+function switchTo(s){ if(OPEN.indexOf(s)<0) return; CUR=s; showFrame(s); renderBar(); }
+function pageBy(d){ var i=OPEN.indexOf(CUR); if(i<0) return; var j=i+d; if(j<0||j>=OPEN.length) return; switchTo(OPEN[j]); }
+function closeScreen(s){
+  if(s==='journal') return;                                  // журнал — база, не закрываем
+  var i=OPEN.indexOf(s); if(i<0) return;
+  OPEN.splice(i,1);
+  var r=SCREENS[s]; if(r) r.frame.style.display='none';       // iframe остаётся тёплым → повторное открытие мгновенно
+  if(CUR===s){ CUR=OPEN[Math.max(0,i-1)]||'journal'; showFrame(CUR); }
+  renderBar();
+}
+document.getElementById('bar').addEventListener('click', function(ev){
+  var x=ev.target.closest && ev.target.closest('[data-x]'); if(x){ ev.stopPropagation(); closeScreen(x.getAttribute('data-x')); return; }
+  var t=ev.target.closest && ev.target.closest('[data-s]'); if(t){ switchTo(t.getAttribute('data-s')); return; }
+});
+document.getElementById('prev').addEventListener('click', function(){ pageBy(-1); });
+document.getElementById('next').addEventListener('click', function(){ pageBy(1); });
 function sendGo(rec, qs){ if(rec.ready && rec.appWin){ rec.appWin.postMessage({pdgo:qs},'*'); } else { rec.pending=qs; } }
 var HIST=[];   // стек показанных qs — «Назад» = вернуться на предыдущий (истинная история переходов)
 function pushHist(qs){ qs=qs||''; if(HIST[HIST.length-1]!==qs) HIST.push(qs); if(HIST.length>40) HIST.shift(); }
@@ -44,16 +98,18 @@ function route(qs, isBack){
   if(!rec){ makeFrame(screen, qs); showFrame(screen); }                        // холодный старт сразу на нужном qs
   else if(WARM[screen]){ showFrame(screen); sendGo(rec, qs); }                 // тёплый — навигация внутрь без релоада
   else { rec.frame.src=bootUrl(screen, qs); rec.ready=false; rec.appWin=null; showFrame(screen); }   // не-тёплый
+  openAdd(screen);                                                            // MULTI: экран открыт → появляется во вкладках
   if(!isBack) pushHist(qs);
 }
 function goBack(){ if(HIST.length>1){ HIST.pop(); route(HIST[HIST.length-1], true); } else { route('', true); } }   // некуда → журнал
 /* D139: печать без баннера — грузим /exec autoprint в отдельный iframe (в iframe баннера нет), приложение
    сигналит pdprintready → печатаем сверху (github.io). Тёплые экраны прячем, чтобы печаталась только форма. */
 var _pf=null, _pfTimer=null;
-function cleanupPrint(){ if(_pfTimer){ clearTimeout(_pfTimer); _pfTimer=null; } if(_pf){ try{ _pf.remove(); }catch(e){} _pf=null; } var s=document.getElementById('stage'); if(s) s.style.display=''; }
+function cleanupPrint(){ if(_pfTimer){ clearTimeout(_pfTimer); _pfTimer=null; } if(_pf){ try{ _pf.remove(); }catch(e){} _pf=null; } var s=document.getElementById('stage'); if(s) s.style.display=''; document.body.classList.remove('printing'); }   // MULTI: вернуть панель после печати
 function doPrint(){ if(!_pf) return; if(_pfTimer){ clearTimeout(_pfTimer); _pfTimer=null; } try{ window.print(); }catch(e){} setTimeout(cleanupPrint, 1500); }
 function startPrint(qs){
   cleanupPrint();
+  document.body.classList.add('printing');                                    // MULTI: панель вкладок не должна попасть в печать
   var s=document.getElementById('stage'); if(s) s.style.display='none';
   var f=document.createElement('iframe'); f.id='printframe'; f.setAttribute('allow','web-share');
   f.style.cssText='position:fixed;inset:0;width:100%;height:100%;border:0;background:#fff;z-index:9999';
