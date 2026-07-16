@@ -10,6 +10,10 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
   html,body{margin:0;height:100%;background:#e9e7e0;overflow:hidden}
+  /* ПЕЧАТЬ: бумага A4. @page внутри приложения НЕ работает — оно в iframe, а при печати действует @page
+     ВЕРХНЕГО документа (этой обёртки). Без этого браузер печатал Letter (612×792) вместо A4 → «не тот вид».
+     Поля НЕ задаём: у бланка сметы и бланка документа они разные, каждый держит свои отступы сам. */
+  @page{size:A4 portrait}
   :root{--barh:34px}
   .app{position:fixed;inset:0;width:100%;height:100%;border:0}
   #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;
