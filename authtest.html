@@ -1,0 +1,51 @@
+<!doctype html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PRIME DOCS — проверка входа (временная страница)</title>
+<style>
+  html,body{margin:0;height:100%;background:#F2F3F5;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1B2A4E}
+  #bar{padding:10px 12px;background:#fff;border-bottom:1px solid #E4E7EE}
+  #bar b{font-size:14px}
+  #st{font-size:12.5px;color:#55617A;margin-top:4px;line-height:1.45}
+  #st .ok{color:#1E7A4B;font-weight:700}
+  #st .bad{color:#A32D2D;font-weight:700}
+  #stage{position:relative;height:calc(100% - 74px)}
+  iframe.app{position:absolute;inset:0;width:100%;height:100%;border:0;background:#fff}
+</style></head><body>
+<div id="bar">
+  <b>Проверка входа в рамке</b>
+  <div id="st">Гружу приложение внутри рамки — как это делает обычный вход…</div>
+</div>
+<div id="stage"></div>
+<script>
+/* ВРЕМЕННАЯ страница. Повторяет обёртку (index.html): та же рамка, тот же способ загрузки,
+   но адрес — ТЕСТОВЫЙ деплой с замком (вход по Google). Данных не трогает, ничего не пишет.
+   Задача: понять, показывает ли Google приложение внутри рамки залогиненному владельцу. */
+var EXEC = "https://script.google.com/macros/s/AKfycbyEgEvVXbbQmS8fMUdoT7jMY9cPr0tSzfifZq5zTA2VUSL7-mCPf_w-tsuY0Ki72yIX/exec";
+var st = document.getElementById('st'), stage = document.getElementById('stage');
+var loaded = false, ready = false;
+
+var f = document.createElement('iframe');
+f.className = 'app';
+f.setAttribute('allow', 'web-share; clipboard-write; clipboard-read');
+f.addEventListener('load', function(){ loaded = true; say(); });
+f.src = EXEC;
+stage.appendChild(f);
+
+/* Приложение шлёт наверх {pdready:true} когда реально загрузилось (A9 тёплый шелл).
+   Пришло — значит внутри рамки всё живо. */
+window.addEventListener('message', function(e){
+  var d = e && e.data;
+  if (d && d.pdready) { ready = true; say(); }
+});
+
+function say(){
+  if (ready) { st.innerHTML = '<span class="ok">✅ ПОЛУЧИЛОСЬ.</span> Приложение открылось внутри рамки, вход по Google сработал. Так и покажите Клоду.'; return; }
+  if (loaded) { st.innerHTML = 'Рамка что-то загрузила, но приложение пока не отозвалось. Подождите 10 секунд и смотрите ниже: <b>виден журнал — хорошо</b>; пусто/просит войти — <span class="bad">не сработало</span>.'; }
+}
+setTimeout(function(){
+  if (!ready) {
+    st.innerHTML += '<br>Прошло 15 сек. Если ниже пусто или белый экран — <span class="bad">вход в рамке не работает</span>, так и скажите.';
+  }
+}, 15000);
+</script>
+</body></html>
