@@ -66,15 +66,15 @@
    Все 3 экрана — WARM (у каждого приёмник pdgo). Не-WARM экран (если появится) грузился бы перезагрузкой. */
 var EXEC = "https://script.google.com/macros/s/AKfycbyQmZhfbPsO1PxDvNXYLcywIQOsjyzCOLX77iHbi7IA6TflNAxwTgx6gAvUr4NnkYlu/exec";
 var stage = document.getElementById('stage');
-var WARM = { journal:1, assemble:1, estimate:1 };   // все 3 экрана тёплые (у каждого приёмник pdgo)
-var SCREENS = { journal:null, estimate:null, assemble:null };
+var WARM = { journal:1, assemble:1, estimate:1, checklist:1 };   // все экраны тёплые (у каждого приёмник pdgo). D185: +checklist
+var SCREENS = { journal:null, estimate:null, assemble:null, checklist:null };   // D185: +checklist
 /* D179 ЗАМОК: приложение закрыто кодом. Пропуск выдаёт сервер после ввода кода; ОБЁРТКА его помнит
    (localStorage этого сайта) и подставляет к КАЖДОМУ адресу /exec — экраны и печать. Нет пропуска →
    приложение само покажет окно ввода кода и пришлёт {pdtoken} наверх (см. обработчик сообщений).
    Замок выключен → пропуска нет → withTok ничего не меняет, всё работает как раньше. */
 var PD_TOKEN = ''; try{ PD_TOKEN = localStorage.getItem('pd_token') || ''; }catch(e){}
 function withTok(qs){ qs=qs||''; if(!PD_TOKEN) return qs; if(/[?&]t=/.test(qs)) return qs; return qs + (qs.indexOf('?')===0?'&':'?') + 't=' + encodeURIComponent(PD_TOKEN); }
-function screenOf(qs){ qs=qs||''; if(/[?&]estimate=1/.test(qs))return 'estimate'; if(/[?&]assemble=1/.test(qs))return 'assemble'; return 'journal'; }
+function screenOf(qs){ qs=qs||''; if(/[?&]estimate=1/.test(qs))return 'estimate'; if(/[?&]assemble=1/.test(qs))return 'assemble'; if(/[?&]checklist=1/.test(qs))return 'checklist'; return 'journal'; }   // D185
 function bootUrl(screen, qs){ if(screen==='journal') return EXEC + withTok(/[?&]openProj=/.test(qs||'')?qs:''); return EXEC + withTok(qs); }
 function makeFrame(screen, qs){
   var f=document.createElement('iframe'); f.className='pdapp'; f.style.display='none';
@@ -89,7 +89,7 @@ function showFrame(screen){ Object.keys(SCREENS).forEach(function(k){ var r=SCRE
    Свайп пальцем поверх iframe поймать нельзя (cross-origin: события внутрь не всплывают) → листаем стрелками/вкладками.
    Панель появляется ТОЛЬКО при 2+ открытых экранах — при одном поведение как раньше. */
 var OPEN=[], CUR='';
-var LBL={ journal:'Журнал', estimate:'Смета', assemble:'Документ' };
+var LBL={ journal:'Журнал', estimate:'Смета', assemble:'Документ', checklist:'Чек-лист' };   // D185
 function renderBar(){
   document.body.classList.toggle('multi', OPEN.length>1);
   var t=document.getElementById('tabs'); if(!t) return;
