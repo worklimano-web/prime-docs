@@ -133,7 +133,8 @@ function goBack(){ if(HIST.length>1){ HIST.pop(); route(HIST[HIST.length-1], tru
    сигналит pdprintready → печатаем сверху (github.io). Тёплые экраны прячем, чтобы печаталась только форма. */
 var _pf=null, _pfTimer=null;
 function cleanupPrint(){ if(_pfTimer){ clearTimeout(_pfTimer); _pfTimer=null; } if(_pf){ try{ _pf.remove(); }catch(e){} _pf=null; } var s=document.getElementById('stage'); if(s) s.style.display=''; document.body.classList.remove('printing'); }   // MULTI: вернуть панель после печати
-function doPrint(){ if(!_pf) return; if(_pfTimer){ clearTimeout(_pfTimer); _pfTimer=null; } try{ window.print(); }catch(e){} setTimeout(cleanupPrint, 1500); }
+// 1.5с не хватало на телефоне: диалог печати ещё не снял страницу, а рамку уже убирали → пустой лист.
+function doPrint(){ if(!_pf) return; if(_pfTimer){ clearTimeout(_pfTimer); _pfTimer=null; } try{ window.print(); }catch(e){} setTimeout(cleanupPrint, 6000); }
 function startPrint(qs){
   cleanupPrint();
   document.body.classList.add('printing');                                    // MULTI: панель вкладок не должна попасть в печать
@@ -143,7 +144,9 @@ function startPrint(qs){
   f.src=EXEC+withTok(qs); document.body.appendChild(f); _pf=f;   // D179: пропуск нужен и печатной рамке
   _pfTimer=setTimeout(doPrint, 4000);   // фолбэк, если pdprintready не пришёл
 }
-window.addEventListener('afterprint', function(){ setTimeout(cleanupPrint, 200); });
+/* ⚠ НЕ убирать печатную рамку по раннему afterprint: на Android он прилетает ДО того, как диалог снял
+   страницу → рамка исчезает и на предпросмотре ПУСТОЙ ЛИСТ (живой случай 17.07). Держим паузу. */
+window.addEventListener('afterprint', function(){ setTimeout(cleanupPrint, 6000); });
 
 /* D184: ПЕЧАТЬ БЛАНКА ЗДЕСЬ (не в iframe). Приложение присылает готовый HTML бланка + свои стили,
    мы кладём их в ЭТОТ документ и печатаем. Почему так: приложение живёт в cross-origin GAS-iframe,
@@ -180,19 +183,26 @@ function printPaper(o){
   try{ window.scrollTo(0,0); }catch(e){}
   setTimeout(function(){ try{ window.print(); }catch(e){} armPaperCleanup(); }, 400);   // 400мс — дать шрифтам/раскладке осесть
 }
-/* Убирать бумагу ПО ФАКТУ окончания печати, а не по короткому таймеру: на телефоне системный диалог
-   печати открывается асинхронно, и уборка через 1-2с успела бы стереть содержимое у него из-под носа
-   (пустой лист). afterprint — основной сигнал; focus — страховка (диалог закрыли, вернулись в окно);
-   минута — последний рубеж, чтобы приложение не залипло с бланком вместо экранов, если сигналов не будет. */
+/* ⚠ Уборка бумаги — ТОЛЬКО НЕ РАНЬШЕ, чем система реально сняла страницу.
+   Грабли (17.07, живой случай — «печатается чистая страница»): на Android `window.print()` открывает
+   системный диалог АСИНХРОННО, а событие `afterprint` прилетает практически сразу — ДО того, как диалог
+   снял содержимое. Уборка по afterprint стирала бланк у диалога из-под носа → на предпросмотре пустой лист.
+   Раньше тут стоял таймер 1.5с — он «случайно» работал именно потому, что не слушал afterprint.
+   Теперь: держим бумагу минимум HOLD мс, и только потом реагируем на сигналы возврата. */
+var PAPER_HOLD_MS = 6000;   // столько бумага гарантированно живёт после вызова печати
 function armPaperCleanup(){
-  var done=false;
+  var done=false, armed=false;
   function fin(){ if(done) return; done=true;
     window.removeEventListener('afterprint', fin); window.removeEventListener('focus', fin);
     cleanupPaper();
   }
-  window.addEventListener('afterprint', fin);
-  setTimeout(function(){ if(!done) window.addEventListener('focus', fin); }, 1200);
-  setTimeout(fin, 60000);
+  setTimeout(function(){   // до этого момента НИКАКИЕ сигналы бумагу не убирают
+    if(done) return;
+    armed=true;
+    window.addEventListener('afterprint', fin);
+    window.addEventListener('focus', fin);
+  }, PAPER_HOLD_MS);
+  setTimeout(fin, 90000);   // последний рубеж: не залипнуть с бланком вместо экранов
 }
 
 window.addEventListener('message', function(ev){
