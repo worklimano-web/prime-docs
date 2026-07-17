@@ -8,6 +8,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="PRIME DOCS">
 <link rel="apple-touch-icon" href="icon-192.png">
+<!-- D184: бланк печатается ЭТИМ документом → шрифты бренда нужны здесь. (Приложение шлёт и свой @import,
+     но он приходит внутри склейки стилей и может оказаться не первым правилом — на @import это фатально.) -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   html,body{margin:0;height:100%;background:#e9e7e0;overflow:hidden}
   /* ПЕЧАТЬ: бумага A4. @page внутри приложения НЕ работает — оно в iframe, а при печати действует @page
@@ -17,33 +21,44 @@
   /* Фон обёртки (#e9e7e0) при печати заливал бы всю страницу серым — верхний документ печатается тоже. */
   @media print{ html,body{background:#fff!important} }
   :root{--barh:34px}
-  .app{position:fixed;inset:0;width:100%;height:100%;border:0}
+  .pdapp{position:fixed;inset:0;width:100%;height:100%;border:0}
   #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;
       font-family:system-ui,-apple-system,sans-serif;color:#6E7480;background:#e9e7e0;font-size:15px}
   /* MULTI: панель открытых экранов — видна ТОЛЬКО когда открыто 2+ экрана (при одном всё как раньше) */
-  .bar{position:fixed;top:0;left:0;right:0;z-index:5;display:none;align-items:center;gap:4px;box-sizing:border-box;
+  .pdbar{position:fixed;top:0;left:0;right:0;z-index:5;display:none;align-items:center;gap:4px;box-sizing:border-box;
        padding:0 4px;padding-top:env(safe-area-inset-top);height:calc(var(--barh) + env(safe-area-inset-top));
        background:#1B2A4E;color:#fff;font:600 12px system-ui,-apple-system,sans-serif}
-  body.multi .bar{display:flex}
-  body.multi .app{top:calc(var(--barh) + env(safe-area-inset-top));height:calc(100% - var(--barh) - env(safe-area-inset-top))}
-  body.printing .bar{display:none}
-  .bar .nav{flex:none;width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;
+  body.multi .pdbar{display:flex}
+  body.multi .pdapp{top:calc(var(--barh) + env(safe-area-inset-top));height:calc(100% - var(--barh) - env(safe-area-inset-top))}
+  body.printing .pdbar{display:none}
+  .pdbar .pdnav{flex:none;width:26px;height:26px;display:flex;align-items:center;justify-content:center;border-radius:6px;
             cursor:pointer;font-size:18px;line-height:1;opacity:.9;user-select:none}
-  .bar .nav:active{background:rgba(255,255,255,.18)}
-  .bar .nav.off{opacity:.28}
-  .bar .tabs{flex:1;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
-  .bar .tabs::-webkit-scrollbar{display:none}
-  .bar .tab{flex:none;display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;cursor:pointer;
+  .pdbar .pdnav:active{background:rgba(255,255,255,.18)}
+  .pdbar .pdnav.off{opacity:.28}
+  .pdbar .pdtabs{flex:1;display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+  .pdbar .pdtabs::-webkit-scrollbar{display:none}
+  .pdbar .pdtab{flex:none;display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;cursor:pointer;
             white-space:nowrap;background:rgba(255,255,255,.14)}
-  .bar .tab.on{background:#C9A961;color:#1B2A4E}
-  .bar .tab i{font-style:normal;opacity:.7;font-size:12px;padding:0 2px}
-  .bar .tab i:active{opacity:1}
-  @media print{.bar{display:none!important}}
+  .pdbar .pdtab.on{background:#C9A961;color:#1B2A4E}
+  .pdbar .pdtab i{font-style:normal;opacity:.7;font-size:12px;padding:0 2px}
+  .pdbar .pdtab i:active{opacity:1}
+  @media print{.pdbar{display:none!important}}
+  /* D184: бланк печатаем ЗДЕСЬ, в верхнем документе (см. скрипт ниже). На экране он не виден никогда —
+     показывается только на время печати. Стили бланка приходят из приложения и вставляются ПЕРЕД этим
+     блоком, поэтому правила ниже перебивают их (порядок + !important). */
+  #pdpaper{display:none}
+  body.papering #pdpaper{display:block;background:#fff}
+  body.papering #stage,body.papering .pdbar{display:none!important}
+  /* у обёртки html,body — overflow:hidden + height:100% (это «оболочка» экрана). Для бумаги их надо
+     распустить, иначе многостраничный бланк обрежется на первой странице. */
+  html.papering,body.papering{overflow:visible!important;height:auto!important;background:#fff!important}
+  @media print{ body.papering #pdpaper{display:block!important} }
 </style></head>
 <body>
 <div id="ld">Загрузка PRIME DOCS…</div>
-<div class="bar" id="bar"><span class="nav" id="prev">‹</span><span class="tabs" id="tabs"></span><span class="nav" id="next">›</span></div>
+<div class="pdbar" id="bar"><span class="pdnav" id="prev">‹</span><span class="pdtabs" id="tabs"></span><span class="pdnav" id="next">›</span></div>
 <div id="stage"></div>
+<div id="pdpaper"></div>
 <script>
 /* A9 ТЁПЛЫЙ ШЕЛЛ: 3 iframe (journal/estimate/assemble), переключаем видимый + шлём целевому pdgo вместо
    перезагрузки. Ключевое: pdgo шлём на сохранённое из pdready окно app (e.source), НЕ на frame.contentWindow
@@ -62,7 +77,7 @@ function withTok(qs){ qs=qs||''; if(!PD_TOKEN) return qs; if(/[?&]t=/.test(qs)) 
 function screenOf(qs){ qs=qs||''; if(/[?&]estimate=1/.test(qs))return 'estimate'; if(/[?&]assemble=1/.test(qs))return 'assemble'; return 'journal'; }
 function bootUrl(screen, qs){ if(screen==='journal') return EXEC + withTok(/[?&]openProj=/.test(qs||'')?qs:''); return EXEC + withTok(qs); }
 function makeFrame(screen, qs){
-  var f=document.createElement('iframe'); f.className='app'; f.style.display='none';
+  var f=document.createElement('iframe'); f.className='pdapp'; f.style.display='none';
   f.setAttribute('allow','web-share; clipboard-write; clipboard-read');
   var rec={ frame:f, appWin:null, ready:false, pending:null }; SCREENS[screen]=rec;
   f.addEventListener('load', function(){ var l=document.getElementById('ld'); if(l) l.style.display='none'; });
@@ -79,11 +94,11 @@ function renderBar(){
   document.body.classList.toggle('multi', OPEN.length>1);
   var t=document.getElementById('tabs'); if(!t) return;
   t.innerHTML=OPEN.map(function(s){
-    return '<span class="tab'+(s===CUR?' on':'')+'" data-s="'+s+'">'+(LBL[s]||s)+(s==='journal'?'':'<i data-x="'+s+'" title="Закрыть">✕</i>')+'</span>';
+    return '<span class="pdtab'+(s===CUR?' on':'')+'" data-s="'+s+'">'+(LBL[s]||s)+(s==='journal'?'':'<i data-x="'+s+'" title="Закрыть">✕</i>')+'</span>';
   }).join('');
   var i=OPEN.indexOf(CUR), pv=document.getElementById('prev'), nx=document.getElementById('next');
-  if(pv) pv.className='nav'+(i<=0?' off':'');
-  if(nx) nx.className='nav'+(i<0||i>=OPEN.length-1?' off':'');
+  if(pv) pv.className='pdnav'+(i<=0?' off':'');
+  if(nx) nx.className='pdnav'+(i<0||i>=OPEN.length-1?' off':'');
 }
 function openAdd(s){ if(OPEN.indexOf(s)<0) OPEN.push(s); CUR=s; renderBar(); }
 function switchTo(s){ if(OPEN.indexOf(s)<0) return; CUR=s; showFrame(s); renderBar(); }
@@ -129,8 +144,70 @@ function startPrint(qs){
   _pfTimer=setTimeout(doPrint, 4000);   // фолбэк, если pdprintready не пришёл
 }
 window.addEventListener('afterprint', function(){ setTimeout(cleanupPrint, 200); });
+
+/* D184: ПЕЧАТЬ БЛАНКА ЗДЕСЬ (не в iframe). Приложение присылает готовый HTML бланка + свои стили,
+   мы кладём их в ЭТОТ документ и печатаем. Почему так: приложение живёт в cross-origin GAS-iframe,
+   а телефон при печати снимает с такого iframe ЭКРАННУЮ картинку, не включая @media print → на бумагу
+   уходил редактор со чекбоксами, а бланк (он скрыт до печати) не попадал вообще. Здесь, наверху,
+   работают и @page A4, и @media print — на любом устройстве, и «экран = бумага».
+   Стили приложения вставляем ПЕРВЫМИ в head: наш статичный <style> идёт после и перебивает их. */
+var _paperCss=null;
+/* Окно-отправитель обязано быть окном ОДНОГО ИЗ НАШИХ экранов (запоминаем их на pdready, см. ниже)
+   либо печатной рамки. Это строже origin: домен googleusercontent.com общий для всех Apps Script мира. */
+function isOurAppWin(src){
+  if(!src) return false;
+  var ok=false;
+  Object.keys(SCREENS).forEach(function(k){ var r=SCREENS[k]; if(r && r.appWin && r.appWin===src) ok=true; });
+  if(!ok && _pf){ try{ if(_pf.contentWindow===src) ok=true; }catch(e){} }
+  return ok;
+}
+function cleanupPaper(){
+  document.body.classList.remove('papering');
+  document.documentElement.classList.remove('papering');
+  var p=document.getElementById('pdpaper'); if(p) p.innerHTML='';
+  if(_paperCss){ try{ _paperCss.remove(); }catch(e){} _paperCss=null; }
+}
+function printPaper(o){
+  if(!o || typeof o.html!=='string' || !o.html) return false;   // нечего печатать → и ack не даём, чтобы сработал прежний путь
+  cleanupPrint(); cleanupPaper();
+  if(typeof o.css==='string' && o.css){
+    var s=document.createElement('style'); s.id='pdpapercss'; s.textContent=o.css;
+    document.head.insertBefore(s, document.head.firstChild); _paperCss=s;
+  }
+  var p=document.getElementById('pdpaper'); p.innerHTML=o.html;
+  document.body.classList.add('papering');
+  document.documentElement.classList.add('papering');
+  try{ window.scrollTo(0,0); }catch(e){}
+  setTimeout(function(){ try{ window.print(); }catch(e){} armPaperCleanup(); }, 400);   // 400мс — дать шрифтам/раскладке осесть
+}
+/* Убирать бумагу ПО ФАКТУ окончания печати, а не по короткому таймеру: на телефоне системный диалог
+   печати открывается асинхронно, и уборка через 1-2с успела бы стереть содержимое у него из-под носа
+   (пустой лист). afterprint — основной сигнал; focus — страховка (диалог закрыли, вернулись в окно);
+   минута — последний рубеж, чтобы приложение не залипло с бланком вместо экранов, если сигналов не будет. */
+function armPaperCleanup(){
+  var done=false;
+  function fin(){ if(done) return; done=true;
+    window.removeEventListener('afterprint', fin); window.removeEventListener('focus', fin);
+    cleanupPaper();
+  }
+  window.addEventListener('afterprint', fin);
+  setTimeout(function(){ if(!done) window.addEventListener('focus', fin); }, 1200);
+  setTimeout(fin, 60000);
+}
+
 window.addEventListener('message', function(ev){
   var d=ev.data; if(!d) return;
+  if(d.pdprintdoc){                                                              // D184: печать бланка верхним документом
+    /* ⚠ ПРОВЕРЯЕМ ОКНО, А НЕ ДОМЕН (находка ревью, до прода). Маска `*.googleusercontent.com` НЕ годится:
+       на этом домене Google исполняет пользовательский код ЛЮБОГО Apps Script — то есть проверку проходил
+       чужой скрипт. А тут html идёт в innerHTML, и `<img onerror>` выполнился бы в origin ОБЁРТКИ, где
+       лежит пропуск (localStorage) → кража пропуска и обход замка. Доверяем только окнам СВОИХ экранов
+       (их запоминаем на pdready) — чужое окно им не является. */
+    if(!isOurAppWin(ev.source)) return;
+    if(!printPaper(d.pdprintdoc)) return;                                        // ack — только если бумага реально собрана
+    try{ ev.source.postMessage({pdprintok:true}, ev.origin || '*'); }catch(e){}  // ack: приложение не уйдёт в старый путь
+    return;
+  }
   if(typeof d.pdtoken==='string'){                                              // D179: код принят — запоминаем пропуск и пересобираем рамки уже с ним
     /* Отправителя проверяем: приложение живёт на google — чужая страница не должна подсовывать пропуск
        (находка ревью: обработчик принимал сообщение от кого угодно). Подделка пропуска сервером всё равно
