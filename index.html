@@ -164,6 +164,25 @@ function isOurAppWin(src){
   if(!ok && _pf){ try{ if(_pf.contentWindow===src) ok=true; }catch(e){} }
   return ok;
 }
+/* D195 БЕЗОПАСНОСТЬ: окно-отправитель pdready становится якорем доверия для isOurAppWin (гейт печати и
+   шэра, где html идёт в innerHTML в origin обёртки — тут же лежит пропуск замка). Раньше регистрация шла
+   БЕЗ проверок: любое окно с handle обёртки могло объявить себя нашим экраном и пройти isOurAppWin. */
+function pdOriginOk(org){
+  org=String(org||'');
+  if(org.indexOf('https://')!==0) return false;
+  var host=org.slice(8);
+  if(host.indexOf('/')>=0 || host.indexOf(':')>=0) return false;
+  if(host==='google.com' || host==='googleusercontent.com') return true;
+  return host.slice(-11)==='.google.com' || host.slice(-22)==='.googleusercontent.com';
+}
+function pdIsDescendantOf(src, frame){   // окно src обязано жить ВНУТРИ нашей рамки (GAS вкладывает app на слой глубже)
+  try{
+    var target=frame && frame.contentWindow; if(!src || !target) return false;
+    var w=src, n=0;
+    while(w && n++<6){ if(w===target) return true; if(w===w.parent) break; w=w.parent; }   // .parent доступен кросс-origin
+  }catch(e){}
+  return false;
+}
 function cleanupPaper(){
   document.body.classList.remove('papering');
   document.documentElement.classList.remove('papering');
@@ -209,6 +228,56 @@ function armPaperCleanup(){
   setTimeout(fin, 90000);   // последний рубеж: не залипнуть с бланком вместо экранов
 }
 
+/* D195: ПОДЕЛИТЬСЯ. Обёртка собирает из ГОТОВОГО бланка (тот же html+css, что уходит на печать) файл PDF
+   и отдаёт его в navigator.share (почта/мессенджер/печать). Почему в обёртке, а не в приложении:
+   navigator.share внутри вложенного GAS-iframe не делегируется (как navigator.vibrate — проверено), а
+   верхний документ им владеет. Рендер — html2canvas→jsPDF картинкой (вектор криво рисует шрифты в мобильных
+   PDF-viewer'ах — урок проекта; образец — gas-perechen makePdfBlob). Библиотеки — лениво с cdnjs при первом
+   «Поделиться». Новый PDF владельцу собирать не надо: это ровно тот бланк, что он печатает. */
+var _pdfLibs=null;
+function ensurePdfLibs(){
+  if(_pdfLibs) return _pdfLibs;
+  _pdfLibs=new Promise(function(res,rej){
+    var need=[];
+    if(typeof html2canvas==='undefined') need.push('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js');
+    if(!window.jspdf) need.push('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+    var i=0; (function nx(){ if(i>=need.length){ res(); return; } var s=document.createElement('script'); s.src=need[i++]; s.onload=nx; s.onerror=function(){ rej(new Error('pdflibs')); }; document.head.appendChild(s); })();
+  });
+  return _pdfLibs;
+}
+function pdSanitizeName(s){ s=String(s==null?'':s).replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/g,'').replace(/[\\/:*?"<>|]/g,' ').replace(/\s+/g,' ').trim().slice(0,80); return s || 'PRIME DOCS'; }
+function pdDownloadBlob(blob, name){ try{ var u=URL.createObjectURL(blob); var a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); setTimeout(function(){ try{ a.remove(); URL.revokeObjectURL(u); }catch(e){} }, 5000); }catch(e){} }
+function pdRenderPdfBlob(html, css){   // офскрин-рендер бланка в PDF (образец — gas-perechen)
+  return new Promise(function(resolve,reject){
+    var st=null; if(css){ st=document.createElement('style'); st.textContent=css; document.head.appendChild(st); }
+    var wrap=document.createElement('div'); wrap.style.cssText='position:fixed;left:-99999px;top:0;background:#fff;width:210mm';
+    wrap.innerHTML=html; document.body.appendChild(wrap);
+    function done(){ try{ document.body.removeChild(wrap); }catch(e){} if(st){ try{ st.remove(); }catch(e){} } }
+    var target=wrap.firstElementChild||wrap, W=target.offsetWidth||wrap.offsetWidth||794;
+    html2canvas(target,{scale:2.5,useCORS:true,backgroundColor:'#ffffff',windowWidth:W,width:W,scrollX:0,scrollY:0})
+      .then(function(canvas){ done();
+        var jsPDF=window.jspdf.jsPDF, pdf=new jsPDF('p','mm','a4');
+        var pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
+        var imgH=canvas.height*pw/canvas.width, img=canvas.toDataURL('image/jpeg',0.96), pos=0;
+        while(true){ pdf.addImage(img,'JPEG',0,-pos,pw,imgH,undefined,'FAST'); pos+=ph; if(pos<imgH-1){ pdf.addPage(); } else break; }
+        resolve(pdf.output('blob'));
+      }).catch(function(e){ done(); reject(e); });
+  });
+}
+function sharePaper(o){
+  return new Promise(function(resolve){
+    if(!o || typeof o.html!=='string' || !o.html){ resolve({ok:false,msg:'нечего отправить'}); return; }
+    var name=pdSanitizeName(o.filename)+'.pdf', title=String(o.title||o.filename||'PRIME DOCS').slice(0,120);
+    ensurePdfLibs().then(function(){ return pdRenderPdfBlob(o.html, typeof o.css==='string'?o.css:''); }).then(function(blob){
+      var file=new File([blob], name, {type:'application/pdf'});
+      if(navigator.canShare && navigator.canShare({files:[file]})){
+        navigator.share({files:[file], title:title}).then(function(){ resolve({ok:true,msg:''}); })
+          .catch(function(err){ if(err && err.name==='AbortError'){ resolve({ok:true,msg:''}); } else { pdDownloadBlob(blob,name); resolve({ok:true,msg:'«Поделиться» не вышло — PDF скачан'}); } });
+      } else { pdDownloadBlob(blob,name); resolve({ok:true,msg:'PDF скачан — приложи вручную'}); }
+    }).catch(function(e){ resolve({ok:false,msg:'не удалось собрать PDF'}); });
+  });
+}
+
 window.addEventListener('message', function(ev){
   var d=ev.data; if(!d) return;
   if(d.pdprintdoc){                                                              // D184: печать бланка верхним документом
@@ -220,6 +289,12 @@ window.addEventListener('message', function(ev){
     if(!isOurAppWin(ev.source)) return;
     if(!printPaper(d.pdprintdoc)) return;                                        // ack — только если бумага реально собрана
     try{ ev.source.postMessage({pdprintok:true}, ev.origin || '*'); }catch(e){}  // ack: приложение не уйдёт в старый путь
+    return;
+  }
+  if(d.pdsharedoc){                                                             // D195: поделиться готовым бланком как PDF (та же защита окна, что у печати)
+    if(!isOurAppWin(ev.source)) return;
+    var _sSrc=ev.source, _sOrg=ev.origin;
+    sharePaper(d.pdsharedoc).then(function(r){ try{ _sSrc.postMessage({ pdshareok:!!(r&&r.ok), msg:(r&&r.msg)||'' }, _sOrg||'*'); }catch(e){} });
     return;
   }
   if(typeof d.pdtoken==='string'){                                              // D179: код принят — запоминаем пропуск и пересобираем рамки уже с ним
@@ -237,7 +312,12 @@ window.addEventListener('message', function(ev){
   if(d.pdback){ goBack(); return; }                                            // «Назад» из экрана → предыдущий по стеку
   if(typeof d.pdnav==='string' && /^(\?[\w=&%.\-]*)?$/.test(d.pdnav)){ route(d.pdnav); return; }
   if(d.pdready && d.screen && SCREENS[d.screen]){
-    var rec=SCREENS[d.screen]; rec.appWin=ev.source; rec.ready=true;           // окно app (не contentWindow)
+    if(!pdOriginOk(ev.origin)) return;                                          // D195: только google-домен…
+    var rec=SCREENS[d.screen];
+    if(!pdIsDescendantOf(ev.source, rec.frame)) return;                         // …и окно реально живёт в НАШЕЙ рамке (решающая проверка)
+    if(rec.appWin && rec.appWin!==ev.source) return;                            // не переписывать уже зарегистрированное окно экрана
+    rec.appWin=ev.source; rec.ready=true;                                       // окно app (не contentWindow)
+    try{ ev.source.postMessage({ pdcaps:{ ver:1, share:!!(navigator.share && navigator.canShare), print:true } }, ev.origin||'*'); }catch(e){}   // D195: сообщаем приложению доступность «Поделиться»
     if(rec.pending){ ev.source.postMessage({pdgo:rec.pending},'*'); rec.pending=null; }
   }
 });
