@@ -22,8 +22,15 @@
   @media print{ html,body{background:#fff!important} }
   :root{--barh:34px}
   .pdapp{position:fixed;inset:0;width:100%;height:100%;border:0}
+  /* Заставка держится, пока приложение не ОТРИСУЕТ данные (сигнал pdpainted), и гаснет плавно.
+     Раньше снималась по load рамки — то есть до загрузки журнала, и владелец видел «мелькание»:
+     голый экран приложения (пустая шапка + «Загрузка журнала…») между заставкой и списком. */
   #ld{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2;
-      font-family:system-ui,-apple-system,sans-serif;color:#6E7480;background:#e9e7e0;font-size:15px}
+      font-family:system-ui,-apple-system,sans-serif;color:#6E7480;background:#e9e7e0;font-size:15px;
+      opacity:1;transition:opacity .32s ease}
+  #ld.gone{opacity:0;pointer-events:none}
+  .pdapp{opacity:0;transition:opacity .32s ease}
+  body.pdshown .pdapp{opacity:1}
   /* MULTI: панель открытых экранов — видна ТОЛЬКО когда открыто 2+ экрана (при одном всё как раньше) */
   .pdbar{position:fixed;top:0;left:0;right:0;z-index:5;display:none;align-items:center;gap:4px;box-sizing:border-box;
        padding:0 4px;padding-top:env(safe-area-inset-top);height:calc(var(--barh) + env(safe-area-inset-top));
@@ -76,11 +83,24 @@ var PD_TOKEN = ''; try{ PD_TOKEN = localStorage.getItem('pd_token') || ''; }catc
 function withTok(qs){ qs=qs||''; if(!PD_TOKEN) return qs; if(/[?&]t=/.test(qs)) return qs; return qs + (qs.indexOf('?')===0?'&':'?') + 't=' + encodeURIComponent(PD_TOKEN); }
 function screenOf(qs){ qs=qs||''; if(/[?&]estimate=1/.test(qs))return 'estimate'; if(/[?&]assemble=1/.test(qs))return 'assemble'; if(/[?&]checklist=1/.test(qs))return 'checklist'; return 'journal'; }   // D185
 function bootUrl(screen, qs){ if(screen==='journal') return EXEC + withTok(/[?&]openProj=/.test(qs||'')?qs:''); return EXEC + withTok(qs); }
+/* Снятие заставки — ОДНА точка на все пути (pdpainted, страховочный таймер, ошибка).
+   Идемпотентно: второй вызов ничего не делает, иначе повторный load дёргал бы анимацию заново. */
+var _splashGone=false;
+function hideSplash(){
+  if(_splashGone) return; _splashGone=true;
+  document.body.classList.add('pdshown');            // рамка проявляется
+  var l=document.getElementById('ld'); if(!l) return;
+  l.classList.add('gone');
+  setTimeout(function(){ try{ l.style.display='none'; }catch(e){} }, 360);   // после перехода — из потока
+}
 function makeFrame(screen, qs){
   var f=document.createElement('iframe'); f.className='pdapp'; f.style.display='none';
   f.setAttribute('allow','web-share; clipboard-write; clipboard-read');
   var rec={ frame:f, appWin:null, ready:false, pending:null }; SCREENS[screen]=rec;
-  f.addEventListener('load', function(){ var l=document.getElementById('ld'); if(l) l.style.display='none'; });
+  // load = «HTML доехал», а НЕ «экран готов»: журнал в этот момент ещё тянет данные. Ждём pdpainted
+  // от приложения, а load оставляем только страховкой на случай, если сигнала не будет (старый экран,
+  // ошибка загрузки, отключённый JS) — иначе заставка залипла бы навсегда.
+  f.addEventListener('load', function(){ setTimeout(hideSplash, 2600); });
   f.src=bootUrl(screen, qs); stage.appendChild(f); return rec;
 }
 function showFrame(screen){ Object.keys(SCREENS).forEach(function(k){ var r=SCREENS[k]; if(r) r.frame.style.display=(k===screen?'block':'none'); }); }
@@ -311,6 +331,7 @@ window.addEventListener('message', function(ev){
   if(d.pdprintready){ doPrint(); return; }
   if(d.pdback){ goBack(); return; }                                            // «Назад» из экрана → предыдущий по стеку
   if(typeof d.pdnav==='string' && /^(\?[\w=&%.\-]*)?$/.test(d.pdnav)){ route(d.pdnav); return; }
+  if(d.pdpainted){ if(pdOriginOk(ev.origin)) hideSplash(); return; }            // экран ОТРИСОВАЛ данные → плавно снимаем заставку
   if(d.pdready && d.screen && SCREENS[d.screen]){
     if(!pdOriginOk(ev.origin)) return;                                          // D195: только google-домен…
     var rec=SCREENS[d.screen];
