@@ -360,6 +360,11 @@ function sharePaper(o, onData){
     ensurePdfLibs().then(function(){ return pdRenderPdfBlob(o.html, typeof o.css==='string'?o.css:'', {header:o.header||''}); }).then(function(res){
       var blob=res.blob, file=new File([blob], name, {type:'application/pdf'});
       function share(){
+        /* D303: «Сохранить без отправки». Гард ВНУТРИ share() → покрывает ВСЕ три вызова (ранний,
+           fr.onload, fr.onerror): при noShare никакой navigator.share не открывается. Файл на Диск уже
+           ушёл отдельным сообщением (onData→pdsharedata), поэтому «Сохранить» и «Отправить» отличаются
+           ровно этим флагом. */
+        if(o.noShare){ resolve({ok:true,noShare:true}); return; }
         if(navigator.canShare && navigator.canShare({files:[file]})){
           navigator.share({files:[file], title:title}).then(function(){ resolve({ok:true,msg:''}); })
             .catch(function(err){ if(err && err.name==='AbortError'){ resolve({ok:true,msg:''}); } else { pdDownloadBlob(blob,name); resolve({ok:true,msg:'«Поделиться» не вышло — PDF скачан'}); } });
@@ -394,6 +399,12 @@ window.addEventListener('message', function(ev){
       .then(function(r){ try{ _sSrc.postMessage({ pdshareok:!!(r&&r.ok), msg:(r&&r.msg)||'' }, _sOrg||'*'); }catch(e){} });
     return;
   }
+  if(typeof d.pdopenurl==='string'){                                            // D303: открыть сохранённый PDF реестра с Диска в НОВОЙ вкладке (top-level; из GAS-iframe window.open ненадёжен)
+    if(!isOurAppWin(ev.source)) return;                                         // только окна наших экранов (журнал/бланк) — как у печати/шаринга
+    var u=d.pdopenurl;
+    if(/^https:\/\/([a-z0-9-]+\.)*(google\.com|googleusercontent\.com)\//.test(u)){ try{ window.open(u,'_blank','noopener'); }catch(e){} }   // только Google-ссылки (наши файлы на Диске)
+    return;
+  }
   if(typeof d.pdtoken==='string'){                                              // D179: код принят — запоминаем пропуск и пересобираем рамки уже с ним
     /* Отправителя проверяем: приложение живёт на google — чужая страница не должна подсовывать пропуск
        (находка ревью: обработчик принимал сообщение от кого угодно). Подделка пропуска сервером всё равно
@@ -415,7 +426,7 @@ window.addEventListener('message', function(ev){
     if(!pdIsDescendantOf(ev.source, rec.frame)) return;                         // …и окно реально живёт в НАШЕЙ рамке (решающая проверка)
     if(rec.appWin && rec.appWin!==ev.source) return;                            // не переписывать уже зарегистрированное окно экрана
     rec.appWin=ev.source; rec.ready=true;                                       // окно app (не contentWindow)
-    try{ ev.source.postMessage({ pdcaps:{ ver:2, share:!!(navigator.share && navigator.canShare), print:true, pdf:true } }, ev.origin||'*'); }catch(e){}   // D195: доступность «Поделиться» · D301 (ver:2): умеем вернуть сам файл и шапку страниц
+    try{ ev.source.postMessage({ pdcaps:{ ver:3, share:!!(navigator.share && navigator.canShare), print:true, pdf:true, noshare:true, openurl:true } }, ev.origin||'*'); }catch(e){}   // D195/D301 · D303 (ver:3): умеем «Сохранить без отправки» (noshare) и «открыть файл с Диска» (openurl)
     if(rec.pending){ ev.source.postMessage({pdgo:rec.pending},'*'); rec.pending=null; }
   }
 });
