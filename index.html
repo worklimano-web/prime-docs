@@ -70,8 +70,22 @@
 /* ОФЛАЙН-РЕДИРЕКТ (аддитивно): нет сети при загрузке → уводим на офлайн-доску и НЕ поднимаем онлайн-журнал
    (см. охранник у route('') внизу). Онлайн (PD_OFFLINE=false) — весь путь ниже как раньше, байт-в-байт.
    SW заранее закэшировал offline.html, так что она открывается без сети (после первого онлайн-визита). */
+function pdGoOffline(){ try{ location.replace('offline.html'); }catch(e){ try{ location.href='offline.html'; }catch(_){} } }
 var PD_OFFLINE = (navigator.onLine === false);
-if (PD_OFFLINE) { try { location.replace('offline.html'); } catch(e){ location.href='offline.html'; } }
+if (PD_OFFLINE) { pdGoOffline(); }
+else {
+  /* navigator.onLine НЕНАДЁЖЕН (в авиарежиме телефон часто врёт true) → активная проба реальной связи с бэкендом.
+     Онлайн-путь НЕ задерживаем: приложение грузится параллельно; если связи нет (reject/таймаут) — уходим на офлайн-доску. */
+  (function(){
+    var done=false, fin=function(off){ if(done)return; done=true; if(off){ PD_OFFLINE=true; pdGoOffline(); } };
+    var to=setTimeout(function(){ fin(true); }, 3500);
+    try{
+      fetch('https://script.google.com/macros/s/AKfycbzRhx3sp9dnPTvmUTmRmsnBgRzQxJBo98T6jNN59a0AJFpSGiMwvSsfwy8B1oe2a1G--g/exec?diag=unlockcheck', { mode:'no-cors', cache:'no-store' })
+        .then(function(){ clearTimeout(to); fin(false); })
+        .catch(function(){ clearTimeout(to); fin(true); });
+    }catch(e){ clearTimeout(to); fin(true); }
+  })();
+}
 /* A9 ТЁПЛЫЙ ШЕЛЛ: 3 iframe (journal/estimate/assemble), переключаем видимый + шлём целевому pdgo вместо
    перезагрузки. Ключевое: pdgo шлём на сохранённое из pdready окно app (e.source), НЕ на frame.contentWindow
    (2-уровневый GAS-iframe: contentWindow=sandbox, до кода app не доходит — проверено на форке).
@@ -485,5 +499,8 @@ window.addEventListener('message', function(ev){
   }
 });
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(function(){}); }
+/* Страховка: приложение изнутри iframe при СЕТЕВОЙ ошибке записи шлёт наверх {pdOffline} — уходим на офлайн-доску
+   (кросс-origin iframe сам сменить top.location не может). Ловит случай «приложение уже открыто/тёплый шелл». */
+window.addEventListener('message', function(ev){ try{ if(ev.data && ev.data.pdOffline) pdGoOffline(); }catch(e){} });
 if(!PD_OFFLINE) route('');   // первый заход — журнал (офлайн — не поднимаем: уже ушли на offline.html)
 </script></body></html>
