@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PRIME DOCS — офлайн доска</title>
+
+<!-- Material Symbols @import + .msym — ДОСЛОВНО из _shared.html (строки 6–8) -->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap');
+/* D236: иконочный шрифт Material Symbols (замена эмодзи в редизайне; тот же хост fonts.googleapis, что и текст). */
+.msym{font-family:'Material Symbols Outlined';font-weight:400;font-style:normal;font-size:inherit;line-height:1;letter-spacing:normal;text-transform:none;display:inline-block;white-space:nowrap;word-wrap:normal;direction:ltr;-webkit-font-smoothing:antialiased;vertical-align:-3px;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24}
+</style>
+
+<!-- базовые токены/обёртка (новый код) -->
+<style>
+/* токены navy/gold — из :root checklist.html; офлайн-панель играет роль фикс-навигации (--ls-h) */
+:root{ --navy:#1B2A4E; --gold:#C9A961; --gold-d:#9c7a31; --ls-h:52px }
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent }
+html,body{ margin:0 }
+body{ font-family:'Archivo',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; color:var(--navy);
+  background:#D9C4A3; -webkit-user-select:none; user-select:none; overscroll-behavior-y:none }
+/* .wrap с боковым паддингом 11px — как мобайл журнала: доска бликует до края через margin:0 -11px */
+.wrap{ max-width:560px; margin:0 auto; padding:var(--ls-h) 11px 80px }
+/* верхняя полоса офлайна: индикатор сети + «Залить (N)» (токены navy/gold) */
+.od-top{ position:fixed; left:0; right:0; top:0; height:var(--ls-h); z-index:30; background:var(--navy); color:#fff;
+  display:flex; align-items:center; gap:10px; padding:0 12px; box-shadow:0 2px 8px rgba(20,26,40,.3) }
+.od-top .ttl{ font-weight:700; font-size:14px }
+.od-net{ display:inline-flex; align-items:center; gap:6px; font-size:11px; opacity:.9 }
+.od-dot{ width:9px; height:9px; border-radius:50%; background:#8A93A8 } .od-dot.on{ background:#3DA579 }
+.od-flush{ margin-left:auto; background:var(--gold); color:#3a2f12; border:none; border-radius:9px;
+  padding:8px 13px; font-weight:700; font-size:13px; cursor:pointer; font-family:inherit }
+.od-flush:disabled{ opacity:.45; cursor:default }
+.od-toast{ position:fixed; left:50%; bottom:78px; transform:translateX(-50%) translateY(10px); z-index:9999;
+  background:#1B2A4E; color:#fff; font-size:12.5px; padding:9px 15px; border-radius:20px; opacity:0;
+  pointer-events:none; transition:opacity .18s, transform .18s }
+.od-toast.on{ opacity:1; transform:translateX(-50%) translateY(0) }
+</style>
+
+<!-- ДОСКА «ДЕЛА»: блок <style> journal_board.html строки 1–453 — ДОСЛОВНО, ни одно правило не менялось -->
+<style>
+/* ═══ D308/D309 ДОСКА «ДЕЛА» — мобильный таск-менеджер (стикеры/стопки) + жесты.
+   ⚠ Префикс bd- у ВСЕГО: в журнале живут глобальные .btn/.note, без префикса доска перекрасилась бы.
+   Переменные свои (--bd-*): --ink/--muted/--line в журнале имеют ДРУГИЕ значения.
+   Фактура — только CSS-градиентами (base64 в CSS и inline-SVG ломают GAS-санитайзер). Никаких filter/blur. */
+/* ── ШКУРКИ ДОСКИ ──
+   Картинку-текстуру вставить НЕЛЬЗЯ: base64 в CSS и inline-SVG ломает GAS-санитайзер, а внешний URL
+   вырезается из шаблона. Поэтому натуральность набираем СЛОЯМИ градиентов с НЕКРАТНЫМИ шагами
+   (7/9/11/13 px) — повтор перестаёт читаться глазом, как на настоящей пробковой крошке. */
+/* D318 EDGE-TO-EDGE: доска на всю ширину экрана — рамки/скругления/белого поля вокруг больше нет
+   (запрос владельца). Negative margin -11px съедает боковой padding обёртки .wrap (мобайл 11px) →
+   фон уходит под край, стикеры шире на ~+11% (площадь +23%). На ПК останется ~5px поля — некритично. */
+/* D318: фолбэк-подложка — СПЛОШНОЙ цвет (пробка/бумага), БЕЗ CSS-градиентов. Раньше при загрузке
+   мелькала старая крапчатая градиент-пробка перед тем как встанет фото (жалоба владельца). Теперь
+   пока грузится фото — просто ровный цвет пробки, фото ложится поверх без мельтешения.
+   Шкурок ДВЕ: пробка (default) и бумага. Третью (серый Material) убрали — владельцу не нужна. */
+/* D325: фон-фолбэк = СРЕДНИЙ ТОН ПРОБКИ (#D9C4A3), пока не встало фото. Фото пробки фейдится ПОВЕРХ
+   того же тона → переход незаметен, и этот цвет СТРУКТУРНО перекрывает любой застрявший в кэше старый
+   коричневый #C79C63 (жалоба «коричневый мелькает»). Прозрачный (D322) давал светлую щель — тоже видно. */
+.bd-board{ --bd-ink:#444441; --bd-mut:#888780; --bd-line:#E3E1D9; --bd-head:#F6F4EE;
+  --bd-skin:#C79C63; --bd-edge-1:#E8CFA6; --bd-edge-2:#F2E0BF;
+  /* D335: ПРОБКА — отдельный ЗАКРЕПЛЁННЫЙ слой .bd-corklayer (position:fixed, ровно по видимому экрану,
+     НЕ двигается при скролле). Само полотно .bd-board прозрачное и прокручивает стикеры ПОВЕРХ неподвижной
+     пробки. Раньше пробка была фоном доски и «ползла» при скролле, вылезая по бокам (жалоба владельца);
+     заодно её постоянная перерисовка под липкой шапкой давала дрожание шапки. min-height 100vh — чтобы
+     полотну всегда хватало высоты для скролла. */
+  background:transparent; border-radius:0; overflow:hidden; margin:0 -11px; border:0; min-height:100vh; }
+/* D335→D336: неподвижная пробка НАЧИНАЕТСЯ ПОД верхней панелью (навигация+поиск), а не с самого верха.
+   Раньше top:0 растягивал её на весь экран, и она просвечивала по бокам от навигации/поиска (панель .ls-sticky
+   уже экрана на 11px с каждой стороны + 12px отступ .wrap сверху) — «пробка в шапке» + иллюзия дрожания шапки.
+   top = высота панели (--ls-h) + верхний отступ .wrap (12px) = ровно низ панели. Полосу между низом панели и
+   доской закрывает непрозрачная строка ДЕЛА (.bd-top, во всю ширину). z-index:0 — ПОД стикерами (grid z1). */
+.bd-corklayer{ position:fixed; left:0; right:0; top:var(--ls-h,96px); bottom:0; z-index:0; pointer-events:none;
+  background-color:#D9C4A3; background-size:cover; background-position:center; background-repeat:no-repeat }   /* D340: шапка теперь fixed во всю ширину → пробка ровно под ней (без +12px компенсации отступа) */
+/* Бумага: сплошной кремовый как фолбэк; водяные знаки PRIME ENGINEERING — отдельный текстовый слой. */
+body.bd-skin-paper .bd-board{ --bd-skin:#F2EDE1; --bd-edge-1:#E4DCC8; --bd-edge-2:#EFE8D8; }
+body.bd-skin-paper .bd-corklayer{ background-color:#F2EDE1 }
+.bd-wm{ position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:0 }
+.bd-wm span{ position:absolute; font-family:'IBM Plex Mono',monospace; font-weight:700; letter-spacing:.14em;
+  color:rgba(110,92,58,.13); white-space:nowrap; transform:rotate(-32deg); font-size:19px }
+.bd-board .bd-grid,.bd-board .bd-empty{ position:relative; z-index:1 }
+.bd-board.gesture-lock{ touch-action:none; overflow:hidden }   /* на время удержания забираем жест у скролла */
+/* Пробка/магнит закрывают экран ЦЕЛИКОМ независимо от числа стикеров (иначе доска обрывалась по контенту). */
+.bd-board{ display:flex; flex-direction:column }
+.bd-board .bd-grid{ flex:1; align-content:flex-start; padding-bottom:90px }   /* D332: место под нижний край, фон-пробка за стикерами */
+/* шапка — D334: ВЫНЕСЕНА ИЗ ПОЛОТНА в закреплённую панель .bd-top (запрос владельца). Полотно со
+   стикерами (пробка + сетка) скроллится ПОД ней. Раньше (D333) .bd-hd прилипала ВНУТРИ .bd-board с
+   overflow:hidden — sticky ловился бортом доски, шапка уезжала за верх и стикеры на неё налезали.
+   Теперь .bd-top — sibling доски, sticky относительно окна, прижат под вкладки+поиск (высота --ls-h). */
+/* D335: overlap 2px (не 1px) — липкая .bd-top заходит под .ls-sticky без щели-мигания (устраняет
+   видимое «дрожание» шапки на 2-3 мм при скролле). */
+.bd-top{ position:sticky; top:calc(var(--ls-h,96px) - 1px); z-index:12; margin:0 -11px; background:#F6F4EE;
+  box-shadow:0 5px 9px -7px rgba(20,26,40,.34) }
+/* D337: шапка ДЕЛА — ОДНА строка. Слева стопкой: название сверху + счётчик под ним (узкий блок →
+   справа больше места под иконки). Справа — фильтры и кнопки в фирменном стиле (обводка). */
+.bd-hd{ padding:6px 9px 7px }
+.bd-hd-t{ display:flex; align-items:center; gap:10px }
+.bd-hd-title{ display:flex; flex-direction:column; gap:3px; flex:none }
+.bd-hd-title b{ font-size:16px; font-weight:600; color:var(--navy); line-height:1 }   /* D337: ДЕЛА +1пт, наверх */
+/* Общий счётчик стикеров — ВСЕГДА виден (не тускнеет при фильтре), тап = показать все / снять фильтр. */
+.bd-cnt-all{ align-self:flex-start; display:inline-flex; align-items:center; gap:4px; background:var(--navy); color:#fff;
+  border-radius:6px; padding:2px 7px; font-size:12px; font-weight:600; cursor:pointer; line-height:1 }
+.bd-hd-r{ margin-left:auto; display:flex; gap:6px; align-items:center }
+/* Слайдер шапки — выезжает под строкой ДЕЛА по «⚙ ещё». */
+.bd-hdmenu{ display:flex; align-items:center; gap:7px; margin-top:8px; padding-top:8px; border-top:1px solid #E3E1D9; flex-wrap:wrap }
+/* D337: ФИРМЕННЫЙ СТИЛЬ иконок шапки — скруглённый квадрат 40px, тонкая navy-обводка (как нижняя панель
+   раскрытого дела). .pri — залитый navy (главное действие «＋ дело»); .on — активная (архив вкл / слайдер открыт). */
+.bd-ico{ width:40px; height:40px; border-radius:11px; border:1.5px solid var(--navy); background:#fff; font-size:19px;
+  display:inline-flex; align-items:center; justify-content:center; color:var(--navy); cursor:pointer; flex:none }
+.bd-ico .msym{ font-size:22px }
+.bd-ico.on,.bd-ico.pri{ background:var(--navy); color:#fff }
+.bd-ico:active{ transform:scale(.93) }
+/* D365 (п.6): сегмент страниц Рабочие/Личные — в .bd-hd-r между фильтрами и tune */
+.bd-seg{ display:inline-flex; background:#e7e1d4; border-radius:10px; padding:2px; gap:2px; flex:none }
+.bd-seg-i{ width:32px; height:34px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; color:#8a8272; cursor:pointer }
+.bd-seg-i .msym{ font-size:19px }
+.bd-seg-i.on{ background:var(--navy); color:#fff }
+.bd-seg-i:active{ transform:scale(.93) }
+/* D365 (п.6): плавающая ПРОЗРАЧНАЯ кнопка «＋ дело» в правом нижнем углу (＋ уехал из шапки) */
+.bd-fab{ position:fixed; right:16px; bottom:18px; width:46px; height:46px; border-radius:50%; z-index:60; touch-action:none;   /* R16 fix: не скроллить при протяжке с ＋ */
+  background:rgba(27,42,78,.10); border:1.5px dashed rgba(27,42,78,.34); color:var(--navy);
+  display:flex; align-items:center; justify-content:center; cursor:pointer; -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px) }
+.bd-fab .msym{ font-size:26px }
+.bd-fab:active,.bd-fab.bd-fab-down{ transform:scale(.9); background:rgba(27,42,78,.18) }
+/* R16 зам.1: мини-меню создания у самого ＋ (нажать → вести палец → отпустить). Значки БЕЗ рамки — это диалог выбора. */
+.bd-fabback{ position:fixed; inset:0; z-index:9490; background:rgba(20,26,40,.14); opacity:0; transition:opacity .12s; touch-action:none }
+.bd-fabback.on{ opacity:1 }
+.bd-fabmenu{ position:fixed; z-index:9500; display:flex; flex-direction:column; gap:9px; align-items:flex-end; opacity:0; transform:translateY(8px); transition:opacity .12s, transform .12s; touch-action:none }
+.bd-fabmenu.on{ opacity:1; transform:translateY(0) }
+.bd-fabitem{ display:inline-flex; align-items:center; gap:9px; background:#fff; border-radius:12px; padding:12px 16px; font-size:15px; font-weight:600; color:#1B2A4E; white-space:nowrap; box-shadow:0 6px 18px rgba(20,26,40,.28); transition:transform .1s, background .1s }
+.bd-fabitem .msym{ font-size:21px; color:#9c7a31 }
+.bd-fabitem.hot{ background:#F6EFDD; color:#3a2f12; transform:scale(1.06) }
+.bd-fabitem.hot .msym{ color:#9c7a31 }
+/* Плотность 2/3/4 — сегментированный переключатель в navy-обводке. */
+.bd-den{ display:inline-flex; border:1.5px solid var(--navy); border-radius:9px; overflow:hidden; flex:none }
+.bd-den span{ font-size:12px; color:var(--navy); padding:8px 11px; cursor:pointer; line-height:1 }
+.bd-den span.on{ background:var(--navy); color:#fff }
+/* D337: фильтры важные/срочные/регулярные/заметки — скруглённый квадрат в обводке ЦВЕТА СМЫСЛА, эмодзи по
+   центру, счётчик — цветным бейджем в правом верхнем углу. Активный фильтр — светлая заливка своего цвета. */
+.bd-chips{ display:flex; gap:6px; margin-left:4px }
+.bd-chip{ position:relative; width:40px; height:40px; border-radius:11px; border:1.5px solid; background:#fff;
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer; flex:none }
+.bd-chip .ic{ font-size:19px; line-height:1 }
+.bd-chip:active{ transform:scale(.93) }
+.bd-cnt2{ position:absolute; top:-5px; right:-5px; min-width:16px; height:16px; border-radius:8px; color:#fff;
+  font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; padding:0 3px; box-sizing:border-box }
+.bd-chip.is-urg{ border-color:#A32D2D } .bd-chip.is-urg .bd-cnt2{ background:#A32D2D } .bd-chip.is-urg.on{ background:#FCEBEB }
+.bd-chip.is-imp{ border-color:#854F0B } .bd-chip.is-imp .bd-cnt2{ background:#854F0B } .bd-chip.is-imp.on{ background:#FAEEDA }
+.bd-chip.is-reg{ border-color:#0F6E56 } .bd-chip.is-reg .bd-cnt2{ background:#0F6E56 } .bd-chip.is-reg.on{ background:#E1F5EE }
+.bd-chip.is-note{ border-color:#3C3489 } .bd-chip.is-note .bd-cnt2{ background:#8480c4 } .bd-chip.is-note.on{ background:#EEEDFE }
+.bd-fltrow{ font-size:11px; color:var(--navy); background:#EDEAE1; padding:5px 11px; display:flex; align-items:center; gap:6px }
+.bd-fltrow u{ cursor:pointer; text-underline-offset:2px }
+/* сетка: число колонок ставит JS (--bcols) — @media во вложенном GAS-iframe мёртв, ширина всегда 980 */
+/* D318 edge-to-edge: боковой отступ сетки уменьшен (8px) — стикеры шире, ближе к краю экрана. */
+.bd-grid{ padding:11px 8px 15px; display:grid; gap:10px; grid-template-columns:repeat(var(--bcols,2),minmax(0,1fr)) }
+.bd-board.c3 .bd-grid{ gap:7px; padding:8px 7px 12px } .bd-board.c4 .bd-grid{ gap:6px; padding:7px 6px 10px }
+/* ── СТИКЕР: строго КВАДРАТНЫЙ при любой сетке (решение владельца) ──
+   aspect-ratio держит квадрат, тело — flex:1 с min-height:0 и обрезкой: содержимое НИКОГДА не растягивает
+   карточку, лишнее прячется в «ещё N». Поэтому высота одинаковая и в режиме пунктов, и в режиме текста. */
+.bd-sticker{ background:var(--k-tint,#fff); border-radius:4px; overflow:hidden; cursor:pointer;
+  aspect-ratio:1/1; display:flex; flex-direction:column;
+  content-visibility:auto; contain-intrinsic-size:0 160px;
+  touch-action:pan-y;                                  /* вертикаль браузеру, горизонталь нам. НЕ none — иначе доску не прокрутить */
+  -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none }
+.bd-sticker.is-urg{ border:1.5px solid #E24B4A }
+.bd-sticker.is-note{ background:#FBFAFF; border:.5px dashed #AFA9EC }
+.bd-sticker.held{ transform:scale(1.03); box-shadow:0 6px 16px rgba(20,26,40,.28) }   /* отклик на удержание: только transform+box-shadow */
+.bd-spine{ padding:6px 8px; display:flex; align-items:center; gap:5px; background:var(--k,#fff); flex:none }
+.bd-pin{ font-size:12px; flex:none; color:var(--k-mid,#5F5E5A) }
+.bd-sticker.is-urg .bd-pin{ color:#E24B4A }
+/* Заголовок стикера виден ЦЕЛИКОМ (решение владельца): на плотных сетках он переносится, а не режется
+   многоточием. Ограничение по строкам — чтобы корешок не съел квадрат карточки. */
+.bd-nm{ font-size:12px; font-weight:600; flex:1; color:var(--k-on,#1B2A4E); line-height:1.25;   /* R16 зам.3: контраст к насыщенной шапке */
+  overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; word-break:break-word }
+.bd-board.c3 .bd-nm{ font-size:11px; -webkit-line-clamp:3 }
+.bd-board.c4 .bd-nm{ font-size:10.5px; -webkit-line-clamp:4 }
+.bd-board.c3 .bd-spine,.bd-board.c4 .bd-spine{ padding:5px 6px; align-items:flex-start }
+.bd-st{ font-size:12px; flex:none }
+.bd-bd{ padding:8px 9px; flex:1; min-height:0; overflow:hidden }
+.bd-board.c3 .bd-bd,.bd-board.c4 .bd-bd{ padding:6px }
+.bd-li{ display:flex; gap:5px; align-items:flex-start; margin-top:4px } .bd-li:first-child{ margin-top:0 }
+.bd-liright{ margin-left:auto; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:3px 4px; flex:none; max-width:47%; padding-left:4px }   /* D367: диапазон+много кружков переносятся и НЕ сжимают текст в одно слово на строку */
+.bd-lidate{ font-size:9.5px; color:#A32D2D; white-space:nowrap }
+/* Кружок исполнителя с инициалами: первые две буквы контрастно (запрос владельца). */
+.bd-exmini{ width:16px; height:16px; border-radius:50%; flex:none; display:inline-flex; align-items:center;
+  justify-content:center; font-size:8px; font-weight:700; font-style:normal; letter-spacing:-.3px; border:1px solid rgba(20,26,40,.14) }
+.bd-board.c4 .bd-lidate{ font-size:8px }   /* D320: даты видны на всех сетках (владелец); на 4 колонках мельче */
+/* Чекбокс — ЗЕЛЁНЫЙ КВАДРАТИК (одинаковый в свёрнутом и открытом виде). Рисуем 12px, а нажимаемая
+   зона ≥44px псевдоэлементом: палец не должен промахиваться по 12-пиксельной цели. */
+.bd-box{ width:12px; height:12px; border-radius:3px; border:1.5px solid #D3D9E4; background:#fff; flex:none; margin-top:2px; position:relative }
+.bd-box.on{ background:#F6EFDD; border-color:#C9A961 }   /* D374: наш стиль — золотая галочка на бледно-золотом (не зелёный закрашенный квадрат), как в пикере исполнителей */
+.bd-box.on::after{ content:""; position:absolute; left:3.5px; top:1px; width:3px; height:5.5px; border:solid #9c7a31; border-width:0 1.6px 1.6px 0; transform:rotate(43deg) }
+.bd-txt{ font-size:12px; color:var(--bd-ink); line-height:1.4; overflow:hidden; flex:1; min-width:0 }   /* D367: текст пункта берёт всё свободное место (правый блок даты/кружков его не сжимает) */
+/* D369: свёрнутый пункт — текст в ОДНУ строку с «…», под ним МЕЛКО срок+исполнители = максимум 2 строки. */
+.bd-ci{ margin-top:5px } .bd-ci:first-child{ margin-top:0 }
+.bd-cirow{ display:flex; gap:5px; align-items:center }
+.bd-citxt{ flex:1; min-width:0; font-size:12px; color:var(--bd-ink); line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.bd-citxt.is-done{ color:#B4B2A9; text-decoration:line-through }
+.bd-cimeta{ display:flex; align-items:center; flex-wrap:wrap; gap:2px 7px; margin:1px 0 0 22px; font-size:9px }
+.bd-cimeta .bd-lidate{ font-size:9px }
+.bd-cimeta .bd-exmini{ width:13px; height:13px; font-size:7px }
+.bd-board.c3 .bd-citxt,.bd-board.c4 .bd-citxt{ font-size:10.5px }
+.bd-txt.is-done{ color:#B4B2A9; text-decoration:line-through }
+.bd-board.c3 .bd-txt,.bd-board.c4 .bd-txt{ font-size:10.5px }
+.bd-more{ font-size:11px; color:var(--bd-mut); margin-top:5px }
+.bd-more.reg{ color:#0F6E56 }
+/* R16: значки-эмодзи стикера переведены в Material Symbols — фиксируем размеры под старые эмодзи. */
+.bd-pin .msym{ font-size:14px } .bd-st .msym{ font-size:13px }
+.bd-attn{ display:inline-flex; align-items:center; gap:3px } .bd-attn .msym{ font-size:12px }
+.bd-proj{ display:flex; align-items:center; gap:5px; margin-top:6px }
+.bd-projbar{ width:3px; height:12px; border-radius:2px; background:var(--kp,#C4C2B8); flex:none }
+.bd-proj span{ font-size:11px; color:#854F0B; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.bd-pal{ background:#EDEBE4; padding:6px 8px; display:flex; align-items:center; justify-content:space-between; gap:3px; flex:none }
+.bd-swatch{ width:20px; height:20px; border-radius:50%; flex:none; cursor:pointer }
+.bd-swatch.on{ border:2px solid var(--navy) }
+.bd-swatch.nc{ background:#fff; border:1px solid #C4C2B8 }
+/* Пункт 1: статусы-переключатели + разделитель в панели шапки стикера. Шарики тут компактнее (тесно). */
+.bd-pst{ font-size:14px; cursor:pointer; opacity:.35; flex:none; font-style:normal; line-height:1 }
+.bd-pst.on{ opacity:1 }
+.bd-pdiv{ width:1px; height:16px; background:rgba(0,0,0,.16); flex:none }
+.bd-pal .bd-swatch{ width:16px; height:16px }
+/* Пункт 4: счётчик выполненных в шапке стикера */
+.bd-stcnt{ font-size:11px; color:var(--k-on,#1B2A4E); font-weight:600; flex:none; opacity:.85 }   /* R16 зам.3: контраст */
+.bd-pin{ color:var(--k-on,#1B2A4E) }   /* R16 зам.3: скрепка контрастна шапке */
+/* Пункт 5: подвал раскрытого дела в ОДНУ строку (скролл, если не влезло); панель статусов+палитра в шапке */
+.bd-open-acts{ flex-wrap:nowrap !important; overflow-x:auto }
+/* D330: значки статусов и палитры в шапке — раздвинуты и чуть крупнее (запрос владельца). */
+.bd-headpal{ gap:8px; flex-wrap:nowrap }   /* R16: шапка НЕ скроллится — статусы и ✓ статичны */
+/* R16 зам.2: выбор цвета = ОДИН крупный шарик, свайп по шапке меняет цвет (без скролла/прогресс-бара). */
+.bd-bigslide{ flex:1 1 auto; min-width:0; display:flex; align-items:center; overflow:hidden; touch-action:none; cursor:ew-resize; padding-left:6px }
+.bd-bigsw{ width:30px; height:30px; border-radius:50%; flex:none; position:relative; box-shadow:0 1px 4px rgba(20,26,40,.32) }
+.bd-bigsw[data-nc]{ box-shadow:none; border:1px solid #C4C2B8 }
+.bd-slchev{ position:absolute; top:50%; transform:translateY(-50%); font-size:16px; font-weight:700; color:var(--k-on,#1B2A4E); opacity:.5; pointer-events:none }
+.bd-slchev.l{ left:-13px } .bd-slchev.r{ right:-13px }
+.bd-slname{ font-size:11px; font-weight:700; color:var(--k-on,#1B2A4E); opacity:.8; margin-left:15px; white-space:nowrap; flex:none }
+/* D339: статусы в панели настроек дела — скруглённые квадраты в обводке ЦВЕТА СМЫСЛА (как фильтры),
+   активный статус залит своим светлым тоном. */
+.bd-headpal .bd-pst{ width:38px; height:38px; border-radius:10px; border:1.5px solid #C4C2B8; background:#fff;
+  display:inline-flex; align-items:center; justify-content:center; font-size:18px; opacity:1 }
+/* R16 зам.4: выбранный статус — НАСЫЩЕННАЯ заливка + белый значок. Срочно=ярко-красный, Важно=ярко-оранжевый (НЕ коричневый — правило D-color-no-brown: коричневый только для обводки/текста, не для заливки). */
+.bd-headpal .pst-urg{ border-color:#E5352E; color:#E5352E } .bd-headpal .pst-urg.on{ background:#E5352E; border-color:#E5352E; color:#fff }
+.bd-headpal .pst-imp{ border-color:#F07C10; color:#F07C10 } .bd-headpal .pst-imp.on{ background:#F07C10; border-color:#F07C10; color:#fff }
+.bd-headpal .pst-reg{ border-color:#0F6E56; color:#0F6E56 } .bd-headpal .pst-reg.on{ background:#0F6E56; border-color:#0F6E56; color:#fff }
+.bd-headpal .pst-note{ border-color:#3C3489; color:#3C3489 } .bd-headpal .pst-note.on{ background:#3C3489; border-color:#3C3489; color:#fff }
+.bd-headpal .bd-pst.on{ box-shadow:0 2px 6px rgba(20,26,40,.25) }
+.bd-headpal .bd-pdiv{ height:26px; margin:0 3px }
+.bd-headpal .bd-swatch{ width:21px; height:21px }
+.bd-headpal .bd-ox{ margin-left:auto }
+/* Пункт 3: на плотных сетках спираль ТОНЬШЕ и незаметнее, название стопки выше и читается */
+.bd-board.c3 .bd-coil{ width:1.5px; height:8px } .bd-board.c4 .bd-coil{ width:1px; height:6px; opacity:.7 }   /* D335: витки −30% и на плотных сетках */
+.bd-board.c3 .bd-spiral{ top:2px; height:8px } .bd-board.c4 .bd-spiral{ top:1px; height:6px; opacity:.7 }
+.bd-board.c3 .bd-stack .bd-spine{ padding-top:12px } .bd-board.c4 .bd-stack .bd-spine{ padding-top:9px }
+.bd-board.c3 .bd-stack .bd-nm{ font-size:11px } .bd-board.c4 .bd-stack .bd-nm{ font-size:10px }
+/* стопка — квадрат тоже (бумажные края позади) */
+/* Стопка = пачка бумаг. Листики за карточкой сделаны ЯВНО видимыми (запрос владельца): заметное
+   смещение + своя рамка и тень у каждого, иначе на пробковом фоне края сливались с доской. */
+.bd-stack{ position:relative; cursor:pointer; touch-action:pan-y; padding:0 7px 7px 0 }
+.bd-edge1,.bd-edge2{ position:absolute; border-radius:4px; border:1px solid rgba(20,26,40,.16); box-shadow:0 1px 3px rgba(20,26,40,.16) }
+.bd-edge1{ left:7px; right:0; top:7px; bottom:0; background:var(--bd-edge-1) }
+.bd-edge2{ left:3.5px; right:3.5px; top:3.5px; bottom:3.5px; background:var(--bd-edge-2) }
+.bd-fgcard{ position:relative; border:1px solid rgba(20,26,40,.14); box-shadow:0 1px 4px rgba(20,26,40,.14) }
+/* Шапка стопки: название ПО ЦЕНТРУ, цвет выбирается как у стикера — тапом по шапке. */
+.bd-stack .bd-spine{ justify-content:center; position:relative; z-index:2; padding-top:17px }   /* текст НИЖЕ витков (витки над текстом в шапке) */
+.bd-stack .bd-nm{ flex:0 1 auto; text-align:center; -webkit-line-clamp:2; font-size:13.5px }   /* название стопки крупнее */
+.bd-stack .bd-st{ position:absolute; right:8px; top:50%; transform:translateY(-50%) }
+.bd-stpal{ position:absolute; right:5px; top:50%; transform:translateY(-50%); z-index:2; cursor:pointer; color:var(--k-ink,#1B2A4E); display:inline-flex; align-items:center; opacity:.75 }
+.bd-stpal .msym{ font-size:17px }
+/* D335: ФИКС-ВЫСОТА шапки стопки — палитра НЕ меняет высоту (раньше при тапе по палитре шапка сжималась,
+   название пропадало, витки наезжали). Оба состояния (название/палитра) одной высоты; палитра тоже
+   отступает сверху под витки и держит шарики в одну строку. */
+.bd-stack .bd-spine, .bd-stack .bd-pal{ min-height:42px; box-sizing:border-box }
+.bd-stack .bd-pal{ padding-top:16px; flex-wrap:nowrap; overflow-x:auto }
+/* D319 СПИРАЛЬ стопки: ТОНКИЕ еле угадывающиеся штрихи-витки ПОД текстом (z-index:0), название —
+   крупнее и ПОВЕРХ (запрос владельца: спираль не должна заслонять текст). */
+.bd-spiral{ position:absolute; top:3px; left:9px; right:9px; height:11px; display:flex; justify-content:space-between; z-index:3; pointer-events:none; opacity:.9 }
+/* D335: витки −30% по толщине (3→2px) и на 2 тона темнее (запрос владельца). */
+.bd-coil{ width:2px; height:11px; border-radius:3px; flex:none; transform:rotate(-13deg);
+  background:linear-gradient(180deg,#d7ccb6 0%,#9a8d71 50%,#5c5340 100%); box-shadow:0 1px 1px rgba(0,0,0,.3) }
+.bd-echo{ display:flex; gap:6px; font-size:11px; color:#854F0B; margin-bottom:5px }
+.bd-echo span{ cursor:pointer }
+.bd-mini{ border-radius:3px; padding:3px 6px; margin-top:4px; display:flex; align-items:center; gap:4px; background:var(--km,#EDEAE1) }
+.bd-mini span{ font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--km-on,#1B2A4E) }   /* R16 зам.3: контраст к насыщенному фону мини */
+.bd-mini-r .msym{ font-size:12px }
+.bd-mini-r{ margin-left:auto; font-size:11px; flex:none }
+.bd-empty{ padding:34px 18px; text-align:center; color:#fff }
+.bd-em-ic{ font-size:30px; opacity:.85 }
+.bd-em-t{ font-size:13px; margin:8px 0 12px; text-shadow:0 1px 2px rgba(0,0,0,.25) }
+.bd-em-b{ display:inline-block; font-size:12px; background:#fff; color:var(--navy); border-radius:8px; padding:8px 14px; cursor:pointer }
+.bd-crumb{ background:#EDEAE1; padding:6px 10px; font-size:13.5px; color:var(--navy); display:flex; align-items:center; gap:6px; cursor:pointer }
+/* D337: «‹ назад» и «⋮ меню стопки» в крошке — в фирменной обводке (маленькие квадраты navy). */
+.bd-crumb-a{ width:26px; height:26px; border-radius:7px; border:1.5px solid var(--navy); color:var(--navy);
+  display:inline-flex; align-items:center; justify-content:center; font-size:16px; line-height:1; flex:none }
+.bd-crumb-menu{ margin-left:auto; width:28px; height:28px; border-radius:7px; border:1.5px solid var(--navy); color:var(--navy);
+  display:inline-flex; align-items:center; justify-content:center; font-size:17px; line-height:1; cursor:pointer; flex:none }
+/* ── ОТКРЫТЫЙ СТИКЕР: тот же вид, просто во весь экран (решение владельца) ──
+   Те же корешок/тело/квадратики, только крупнее. Тело СПЛОШНОЕ — без разделительных линий между пунктами. */
+/* D324: раскрытое дело — СВЕРХУ экрана (не по центру), размер ПО СОДЕРЖИМОМУ: при мало пунктов ~квадрат,
+   при росте вытягивается в прямоугольник, при переполнении — вертикальный скролл тела. */
+.bd-open{ position:fixed; inset:0; z-index:9400; background:rgba(20,26,40,.55); display:flex; align-items:flex-start; justify-content:center; padding:6px 10px }
+.bd-open-card{ background:var(--k-tint,#fff); border-radius:6px; overflow:hidden; width:100%; max-width:520px;
+  min-height:min(66vh,430px); max-height:94vh; display:flex; flex-direction:column }
+.bd-open-card .bd-spine{ padding:9px 11px }
+.bd-open-card .bd-pin{ font-size:14px }
+.bd-open-card .bd-nm{ font-size:14px }
+.bd-open-card .bd-st{ font-size:14px }
+/* D337: ✕ закрыть и ⚙ (статусы/цвет) в шапке раскрытого дела — маленькие квадраты в обводке цвета дела. */
+.bd-ox{ width:30px; height:30px; border-radius:8px; border:1.5px solid var(--k-ink,#1B2A4E); background:rgba(255,255,255,.4);
+  color:var(--k-ink,#1B2A4E); flex:none; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; font-size:15px }
+.bd-ohd{ width:30px; height:30px; border-radius:8px; border:1.5px solid var(--k-ink,#1B2A4E); background:rgba(255,255,255,.4);
+  color:var(--k-ink,#1B2A4E); flex:none; cursor:pointer; display:inline-flex; align-items:center; justify-content:center }
+.bd-ohd .msym{ font-size:18px }
+.bd-open-bd{ padding:11px 12px 14px; overflow:auto; flex:1 }
+.bd-open-bd .bd-li{ margin-top:7px; gap:7px; align-items:center } .bd-open-bd .bd-li:first-child{ margin-top:0 }
+.bd-open-bd .bd-box{ width:17px; height:17px; margin-top:0 }
+.bd-open-bd .bd-box.on::after{ left:5.5px; top:2px; width:4px; height:8px; border-width:0 2px 2px 0 }   /* D374: галочка крупнее в раскрытом виде */
+.bd-open-bd .bd-txt{ font-size:13px; line-height:1.5 }
+/* ⚠ Ввод пункта — обычное ПОЛЕ, а не редактируемый текст: contenteditable во вложенном GAS-iframe
+   не принимал ввод и не поднимал клавиатуру (пункты добавлялись пустыми и вписать было нечего). */
+.bd-inp{ flex:1; min-width:0; font:inherit; font-size:14px; color:var(--bd-ink); background:transparent;
+  border:none; border-bottom:1px solid rgba(120,110,90,.28); padding:3px 1px; outline:none; border-radius:0 }
+/* D322: поле пункта — многострочное, авто-рост до ~3 строк (текст длиннее строки переносится). */
+.bd-itxt{ resize:none; overflow:hidden; line-height:1.35; max-height:66px; font-family:inherit }
+.bd-inp:focus{ border-bottom-color:var(--navy) }
+.bd-inp.is-done{ color:#B4B2A9; text-decoration:line-through }
+.bd-mini-btn{ flex:none; font-size:11px; color:var(--bd-mut); background:#F1EFE8; border-radius:6px; padding:3px 6px; cursor:pointer; white-space:nowrap }
+.bd-mini-btn.set{ color:#A32D2D }
+.bd-exdot{ width:20px; height:20px; border-radius:50%; flex:none; cursor:pointer; border:1px solid rgba(20,26,40,.18);
+  display:inline-flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; font-style:normal; letter-spacing:-.3px }
+.bd-exdot.empty{ background:#EDEAE1 }
+.bd-itsub{ display:flex; gap:6px; align-items:center; margin:2px 0 0 24px; font-size:10.5px; color:#A32D2D }
+.bd-itsub b{ font-weight:500; color:var(--bd-mut) }
+/* Свайп по строке пункта: обёртка прячет рельс справа, строка сдвигается влево поверх него. */
+.bd-liwrap{ position:relative; overflow:hidden; border-radius:8px; margin-top:6px }
+.bd-liwrap:first-child{ margin-top:0 }
+/* D321: рельс виден ТОЛЬКО при свайпе (.open). Иначе его кнопки-полукруги торчали справа за строкой
+   (обрезанные overflow — «непонятные полукруги» на скрине владельца). */
+.bd-lirail{ position:absolute; top:0; right:0; bottom:0; display:none; align-items:center; gap:3px; padding:0 6px 0 10px }
+.bd-liwrap.open .bd-lirail{ display:flex }
+.bd-rl{ width:38px; height:38px; border-radius:50%; background:#F1EFE8; display:flex; align-items:center; justify-content:center;
+  font-size:16px; cursor:pointer; flex:none }
+.bd-rl.danger{ color:#A32D2D }
+.bd-rl:active{ transform:scale(.9) }
+.bd-liwrap .bd-li{ position:relative; z-index:1; background:var(--k-tint,#fff); transition:transform .13s; margin-top:0; padding:4px 2px }
+.bd-liwrap.open .bd-li{ transform:translateX(-214px) }
+.bd-liwrap.is-note .bd-li{ background:#FBFAFF }
+.bd-note{ width:100%; box-sizing:border-box; resize:vertical; min-height:140px; border:1px solid rgba(120,110,90,.3);
+  border-radius:8px; padding:9px 10px; line-height:1.5 }
+.bd-open-add{ font-size:12.5px; color:var(--bd-mut); margin-top:11px; cursor:pointer }
+/* Вложения (блок 2): плитки-превью фото/файлов + кнопка прикрепить. */
+.bd-atts{ display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; padding-top:10px; border-top:1px solid #F1EFE8 }
+.bd-attw{ width:60px; display:flex; flex-direction:column; align-items:center; gap:3px }   /* D364: плитка + имя снизу */
+.bd-att{ position:relative; width:60px; height:60px; border-radius:8px; overflow:hidden; flex:none;
+  background:#E8E5DA; display:flex; align-items:center; justify-content:center; cursor:pointer }
+.bd-att img{ width:100%; height:100%; object-fit:cover; display:block }
+.bd-att .fic{ font-size:24px; color:#7a6a3a }
+.bd-att .fic .msym{ font-size:26px }
+.bd-att .axo{ position:absolute; top:2px; right:2px; width:18px; height:18px; border-radius:50%; background:rgba(20,26,40,.72); color:#fff;
+  font-size:11px; display:flex; align-items:center; justify-content:center; cursor:pointer }
+/* D364: короткое имя файла ПОД плиткой (и фото, и документ); тап — переименовать (вариант Б). */
+.bd-attnm{ max-width:60px; font-size:8.5px; line-height:1.15; color:#6a6353; text-align:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:text }
+.bd-att.up{ opacity:.55 }
+.bd-att.add{ border:1.5px dashed #C4C2B8; background:transparent; color:#7A7871; font-size:22px }
+/* D321: центральное горизонтальное меню прикрепления (D364: Material Symbols + кнопка «Скан», перенос если тесно) */
+.bd-cmenu-bg{ position:fixed; inset:0; z-index:9500; background:rgba(20,26,40,.45); display:flex; align-items:center; justify-content:center }
+.bd-cmenu{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; box-sizing:border-box; max-width:352px; background:#fff; border-radius:14px; padding:15px 10px; box-shadow:0 8px 26px rgba(20,26,40,.35) }
+.bd-cm{ width:74px; box-sizing:border-box; display:flex; flex-direction:column; align-items:center; gap:7px; font-size:12px; color:var(--navy); cursor:pointer;
+  padding:10px 3px; border-radius:10px }
+.bd-cm b{ font-size:27px; font-weight:400; line-height:1 }
+.bd-cm b .msym{ font-size:27px }
+.bd-cm:active{ background:#F1EFE8 }
+/* D326 пункт 2: подтверждение по центру */
+.bd-confbox{ background:#fff; border-radius:14px; padding:18px; max-width:300px; box-shadow:0 8px 26px rgba(20,26,40,.35) }
+.bd-conf-t{ font-size:14px; color:var(--navy); text-align:center; margin-bottom:16px; line-height:1.4 }
+.bd-conf-b{ display:flex; gap:10px }
+.bd-conf-no,.bd-conf-yes{ flex:1; text-align:center; padding:11px 8px; border-radius:10px; font-size:13.5px; cursor:pointer }
+.bd-conf-no{ background:#F1EFE8; color:var(--bd-ink) }
+.bd-conf-yes{ background:var(--navy); color:#fff }
+/* D331: вертикальный столбец кнопок (крестик: сохранить-и-выйти / выйти без сохранения / отмена) */
+.bd-conf-col{ display:flex; flex-direction:column; gap:8px }
+.bd-conf-row{ text-align:center; padding:12px 8px; border-radius:10px; font-size:13.5px; cursor:pointer; background:#F1EFE8; color:var(--bd-ink) }
+.bd-conf-row.pri{ background:var(--navy); color:#fff }
+.bd-conf-row.danger{ background:#FCEBEB; color:#A32D2D }
+.bd-conf-row.cancel{ background:transparent; color:var(--bd-mut) }
+.bd-open-foot{ font-size:12px; color:var(--bd-mut); margin-top:12px; padding-top:9px; border-top:1px solid #F1EFE8 }
+/* Панель раскрытого дела — иконками в одну строку, как на бланке реестра (тот же язык кнопок). */
+/* Панель действий переносится на второй ряд: значков много, а экран владельца ~448 px. */
+.bd-open-acts{ display:flex; gap:6px; padding:0 12px 12px; flex:none; align-items:center; flex-wrap:wrap }
+.bd-titleinp{ font:inherit; font-size:14px; font-weight:600; color:var(--k-on,#1B2A4E); background:transparent;   /* R16 зам.3: контраст к насыщенной шапке */
+  border:none; outline:none; flex:1; min-width:0; padding:2px 0; -webkit-line-clamp:none; display:block }
+.bd-oact.on-urg{ background:#FCEBEB; border-color:#A32D2D; color:#A32D2D }
+.bd-oact.on-imp{ background:#FAEEDA; border-color:#854F0B; color:#854F0B }
+.bd-oact.on-note{ background:#EEEDFE; border-color:#3C3489; color:#3C3489 }
+.bd-oact.on-reg{ background:#E1F5EE; border-color:#0F6E56; color:#0F6E56 }
+.bd-oact.on-due{ background:#EAF3DE; border-color:#3B6D11; color:#3B6D11 }
+.bd-oact{ width:40px; height:40px; flex:none; border:1px solid var(--navy); border-radius:10px; background:#fff; color:var(--navy);
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer; font-size:17px }
+.bd-oact .msym{ font-size:22px }
+.bd-oact:active{ transform:scale(.93) }
+.bd-oact.save{ border-color:var(--gold); color:#8a6d1f }
+.bd-oact.toest{ border-color:#0F6E56; color:#0F6E56 }   /* D349: «В смету» — зелёная обводка (финанс-действие) */
+.bd-oact.send{ background:var(--navy); color:#fff }
+.bd-oact.del{ border-color:#A32D2D; color:#A32D2D }
+.bd-oact-sp{ flex:1 1 auto }
+/* ── ПЕРЕТАСКИВАНИЕ ПАЛЬЦЕМ: карточка «прилипает» к пальцу, цель подсвечивается ── */
+.bd-drag{ position:fixed; z-index:9550; width:150px; pointer-events:none; opacity:.95; transform:rotate(-3deg);
+  box-shadow:0 10px 24px rgba(20,26,40,.4); border-radius:4px; overflow:hidden }
+.bd-sticker.dragging{ opacity:.28 }
+.bd-drop{ outline:3px dashed rgba(27,42,78,.75); outline-offset:2px }
+.bd-droproot{ outline:3px dashed rgba(255,255,255,.85); outline-offset:-6px }
+/* D323: лента стопок сверху при перетаскивании — цель можно выбрать, даже если стопка не на экране. */
+.bd-dragbar{ position:fixed; top:0; left:0; right:0; z-index:9540; background:rgba(27,42,78,.94); padding:9px 6px 8px;
+  display:flex; gap:6px; overflow-x:auto; pointer-events:none; box-shadow:0 3px 10px rgba(0,0,0,.3) }
+.bd-dragslot{ flex:none; padding:8px 13px; border-radius:18px; background:rgba(255,255,255,.16); color:#fff; font-size:12.5px;
+  white-space:nowrap; display:inline-flex; align-items:center; gap:6px }
+.bd-dragslot i{ width:11px; height:11px; border-radius:50%; flex:none; display:inline-block }
+.bd-dragslot.hot{ background:#fff; color:#1B2A4E; transform:scale(1.08) }
+.bd-draghint{ position:fixed; left:50%; transform:translateX(-50%); top:54px; z-index:9560; background:rgba(27,42,78,.9); color:#fff;
+  font-size:12px; padding:5px 12px; border-radius:20px; white-space:nowrap; pointer-events:none }
+/* ── ВЕЕР по удержанию стопки: живёт, пока палец на экране ── */
+.bd-fan{ position:fixed; inset:0; z-index:9500; background:var(--bd-skin,#CBA477) }
+.bd-fan-lbl{ position:fixed; left:50%; transform:translateX(-50%); top:10px; z-index:9502; background:rgba(27,42,78,.86); color:#fff;
+  font-size:12px; padding:5px 12px; border-radius:20px; white-space:nowrap }
+.bd-fan-card{ position:fixed; width:132px; background:#fff; border-radius:3px; overflow:hidden; z-index:9501;
+  box-shadow:0 3px 10px rgba(20,26,40,.3); transition:transform .09s }
+.bd-fan-card .fh{ padding:4px; background:var(--k,#EDEAE1) }
+.bd-fan-card .fb{ padding:6px 8px }
+.bd-fan-card .fn{ font-size:11.5px; font-weight:600; color:#1B2A4E; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.bd-fan-card .fc{ font-size:11px; color:#888780 }
+.bd-fan-card.pick{ transform:scale(1.14); box-shadow:0 6px 18px rgba(20,26,40,.42) }
+/* ── СВАЙП-РЕЛЬС (только 2 колонки: на 3-4 цели были бы по 20px при минимуме 44) ── */
+.bd-rail{ position:absolute; inset:0; z-index:5; background:rgba(246,244,238,.97); display:flex; align-items:center; justify-content:space-around; gap:2px; padding:0 4px }
+.bd-rbtn{ width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:17px; background:#EDEAE1; color:#5F5E5A; cursor:pointer }
+.bd-rbtn.on{ background:var(--navy); color:#fff }
+.bd-rbtn.danger{ color:#A32D2D }
+.bd-swrap{ position:relative }
+/* ── НИЖНЯЯ ШТОРКА (плотные сетки + удержание стикера) ── */
+/* D339: ВСЕ диалоги доски — ПО ЦЕНТРУ экрана (запрос владельца), а не нижней шторкой. Один переключатель
+   стиля на .bd-sheet покрывает все окна (переместить/отправить/частота/исполнитель/новая стопка/дата). */
+.bd-sheet{ position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:9450; background:#fff;
+  border-radius:14px; padding:14px; width:calc(100% - 32px); max-width:320px; max-height:86vh; overflow:auto;
+  box-shadow:0 8px 26px rgba(20,26,40,.35) }
+.bd-sheet-bg{ position:fixed; inset:0; z-index:9440; background:rgba(20,26,40,.45) }
+.bd-grab{ display:none }   /* D339: «ручка» нижней шторки не нужна в центральном диалоге */
+.bd-srow{ display:flex; align-items:center; gap:10px; padding:9px 4px; font-size:13.5px; color:var(--bd-ink); cursor:pointer; border-radius:8px }
+/* D341: значок строки диалога — маленький скруглённый квадрат в фирменной navy-обводке (как везде). */
+.bd-srow i{ width:32px; height:32px; flex:none; border-radius:8px; border:1.5px solid var(--navy); color:var(--navy);
+  display:inline-flex; align-items:center; justify-content:center; font-size:15px; font-style:normal; line-height:1 }
+.bd-srow i .msym{ font-size:18px }
+.bd-srow.danger{ color:#A32D2D }
+.bd-srow.danger i{ border-color:#A32D2D; color:#A32D2D }
+.bd-sheet-t{ font-size:12px; color:var(--bd-mut); padding:0 4px 4px }
+/* п.3/п.4: значки рельса — Material Symbols (D236 стандарт, не эмодзи); дата-значок в подписи пункта. */
+.bd-rl .msym{ font-size:19px }
+.bd-lidate .msym{ font-size:13px; vertical-align:-2px }
+.bd-exdots{ display:inline-flex; gap:2px; vertical-align:middle }
+/* п.3: мультивыбор исполнителей — галочки в нашем стиле (золотая галка, не закрашенный квадрат). */
+.bd-exlist{ max-height:46vh; overflow:auto; margin:2px 0 4px; border:1px solid #E4E7EE; border-radius:10px }
+.bd-pexrow{ display:flex; align-items:center; gap:10px; padding:8px 10px; border-bottom:1px solid #EEF0F4; cursor:pointer }
+.bd-pexrow:last-child{ border-bottom:none }
+.bd-pexck{ width:19px; height:19px; flex:none; border:1.6px solid #D3D9E4; border-radius:5px; background:#fff; display:inline-flex; align-items:center; justify-content:center }
+.bd-pexck .msym{ font-size:14px; color:#9c7a31; display:none }
+.bd-pexrow.on .bd-pexck{ border-color:#C9A961; background:#F6EFDD }
+.bd-pexrow.on .bd-pexck .msym{ display:inline-block }
+.bd-pexnm{ flex:1; min-width:0; font-size:13.5px; color:#2a3245 }
+.bd-exbtns{ display:flex; gap:8px; margin-top:11px }
+.bd-exclr{ flex:1; text-align:center; padding:9px; border:1px solid #E4E7EE; border-radius:9px; font-size:12.5px; color:#A32D2D; cursor:pointer }
+.bd-exok{ flex:1; text-align:center; padding:9px; background:#1D9E75; color:#fff; border-radius:9px; font-size:12.5px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:5px }
+.bd-exok .msym{ font-size:16px }
+/* п.4: календарь среза пункта (две даты = диапазон; одна + Применить = один срок). */
+.bd-cal-hd{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px }
+.bd-cal-ttl{ font-weight:700; font-size:13px; color:var(--navy) }
+.bd-cal-nav{ width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border:1px solid #E4E7EE; border-radius:8px; color:var(--navy); cursor:pointer }
+.bd-cal-nav .msym{ font-size:18px }
+.bd-cal-wk{ display:grid; grid-template-columns:repeat(7,1fr); gap:2px; margin-bottom:2px }
+.bd-cal-wk span{ text-align:center; font-size:9px; text-transform:uppercase; color:#8A93A8; font-family:'IBM Plex Mono',monospace }
+.bd-cal-g{ display:grid; grid-template-columns:repeat(7,1fr); gap:3px }
+.bd-cd{ aspect-ratio:1/1; display:flex; align-items:center; justify-content:center; font-size:12.5px; color:#3a4358; border-radius:8px; cursor:pointer; font-variant-numeric:tabular-nums }
+.bd-cd.out{ visibility:hidden; cursor:default }
+.bd-cd.rng{ background:#F6EFDD; color:#9c7a31; font-weight:600 }
+.bd-cd.end{ background:var(--navy); color:#fff; font-weight:700 }
+.bd-cal-hint{ font-size:11px; color:#55617A; text-align:center; margin:9px 0 2px; font-family:'IBM Plex Mono',monospace }
+/* D339: строка выбора вложения в окне «Отправить». */
+.bd-sendatt{ display:flex; align-items:center; gap:9px; padding:6px 2px; font-size:13px; cursor:pointer }
+.bd-sendchk{ width:18px; height:18px; flex:none; accent-color:#1B2A4E }
+.bd-sendic{ width:32px; height:32px; border-radius:8px; background:#E8E5DA; display:inline-flex; align-items:center; justify-content:center; color:#5F5E5A; flex:none }
+.bd-sendic .msym{ font-size:17px }
+.bd-sendnm{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+/* ── ТОСТ «Вернуть» — отмена архива/переноса ── */
+.bd-undo{ position:fixed; left:12px; right:12px; bottom:14px; z-index:9600; background:#1B2A4E; color:#fff; border-radius:10px;
+  padding:11px 13px; font-size:12.5px; display:flex; align-items:center; gap:10px }
+.bd-undo u{ margin-left:auto; cursor:pointer; font-weight:600; text-underline-offset:2px }
+</style>
+</head>
+
+<body class="mobile">
+<div class="od-top">
+  <span class="od-net"><span class="od-dot" id="odDot"></span><span id="odNet">офлайн</span></span>
+  <span class="ttl">PRIME DOCS · Доска</span>
+  <button class="od-flush" id="odFlush">Залить (0)</button>
+</div>
+<div class="wrap"><div id="board"></div></div>
+<div id="odToast" class="od-toast"></div>
+
+<script>
+/* ===== ДОСЛОВНЫЕ помощники из реального кода ===== */
+/* msy — assemble.html:780 */
+function msy(n){ return '<span class="msym" aria-hidden="true">'+n+'</span>'; }   // D303: иконка Material Symbols (шрифт подключён в _shared)
+/* esc — _shared.html:218 */
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }   // экранируем и " — данные попадают в value=""/title=""
+/* fmtDate — journal_nav2.html:6 */
+function fmtDate(s){ if(!s) return '—'; var p=String(s).split('-'); return p.length===3?(p[2]+'.'+p[1]):s; }
+/* палитра исполнителей — _shared.html:258–261 */
+var EXEC_PALETTE=['#2F6E78','#A65A3A','#6B4EA6','#3B6D11','#B0851F','#1F6FB0','#A32D6E','#0E7C6B','#8A5A2B','#4A5A70'];
+var _execColors={};
+function execHash(s){ s=String(s||''); var h=0; for(var i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))>>>0; } return h; }
+function execColor(name){ name=String(name||'').trim(); if(!name) return '#c7ccd6'; return _execColors[name]||EXEC_PALETTE[execHash(name)%EXEC_PALETTE.length]; }
+
+/* ===== ДОСЛОВНЫЕ функции доски из journal_board.html ===== */
+/* BD_COLORS/BD_K/aliases/консты/bdK/bdVars/bdColKey — 469–493 */
+/* R16 (перепалитровка, утв. владельцем): 8 чистых цветов + бумага. Есть красный и графит; «невнятные»
+   (2 оранжевых/серо-беж/бледная сирень) убраны. k=шарик/корешок · tint=лёгкий тон ТЕЛА стикера · ink=текст. */
+var BD_COLORS = ['red','amber','green','teal','blue','violet','forest','graphite','none'];
+/* k=шарик/насыщенный фон шапки · tint=лёгкий тон ТЕЛА · ink=текст на светлом теле · on=КОНТРАСТ к насыщенной
+   шапке (белый/тёмный по яркости) — зам.3 · nm=подпись цвета для слайдера — зам.2. */
+var BD_K = {
+  red:     { k:'#D9534F', ink:'#5B1614', mid:'#8A2C28', tint:'#FBECEB', on:'#FFFFFF', nm:'Красный' },
+  amber:   { k:'#E3A13A', ink:'#4A3007', mid:'#6B4A0C', tint:'#FBF3E1', on:'#4A3007', nm:'Янтарь' },
+  green:   { k:'#3DA579', ink:'#0A3A2B', mid:'#0F5B41', tint:'#E9F6F0', on:'#FFFFFF', nm:'Зелёный' },
+  teal:    { k:'#2E9CAE', ink:'#073A42', mid:'#0C5A66', tint:'#E7F4F6', on:'#FFFFFF', nm:'Бирюза' },
+  blue:    { k:'#4B84D4', ink:'#0B2C56', mid:'#124A85', tint:'#EAF1FB', on:'#FFFFFF', nm:'Синий' },
+  violet:  { k:'#7E66D4', ink:'#2A1C60', mid:'#43349C', tint:'#F0ECFB', on:'#FFFFFF', nm:'Фиолет' },
+  forest:  { k:'#1F7A4D', ink:'#0C3A24', mid:'#155C39', tint:'#E7F3EA', on:'#FFFFFF', nm:'Густо-зел.' },
+  graphite:{ k:'#3B4453', ink:'#222A38', mid:'#3B4453', tint:'#EDEFF3', on:'#FFFFFF', nm:'Графит' },
+  none:    { k:'#FFFFFF', ink:'#1B2A4E', mid:'#5F5E5A', tint:'#FFFFFF', on:'#1B2A4E', nm:'Бумага' }
+};
+/* R16: старые ключи цвета из базы → ближайший новый, чтобы существующие стикеры/стопки НЕ побелели.
+   Данные не трогаем; при следующем выборе цвета сохранится уже новый ключ. */
+BD_K.lilac=BD_K.violet; BD_K.mint=BD_K.green; BD_K.sand=BD_K.amber; BD_K.rose=BD_K.red;
+BD_K.sky=BD_K.blue; BD_K.leaf=BD_K.green; BD_K.sun=BD_K.amber; BD_K.stone=BD_K.graphite;
+var BD_HOLD=380, BD_SLOP=10, BD_RAIL_OPEN=12, BD_RAIL_COMMIT=45, BD_GHOST=400, BD_DEB=400;   // D335: BD_FAN_MAX убран вместе с веером стопки
+function bdK(key){ return BD_K[String(key||'').trim()] || BD_K.none; }
+function bdVars(key){ var c=bdK(key); return '--k:'+c.k+';--k-ink:'+c.ink+';--k-mid:'+c.mid+';--k-tint:'+c.tint+';--k-on:'+(c.on||c.ink); }
+/* R16: нормализовать цвет (в т.ч. старый ключ-алиас) к НОВОМУ ключу из BD_COLORS — для слайдера и подписи. */
+function bdColKey(color){ if(BD_COLORS.indexOf(color)>=0) return color; var kk=bdK(color).k; for(var i=0;i<BD_COLORS.length;i++){ if(BD_K[BD_COLORS[i]].k===kk) return BD_COLORS[i]; } return 'none'; }
+/* bdChk/bdSort/bdOverdue/bdModel/bdFltPass/bdSearchPass — 565–619 */
+function bdChk(id){ return ((BOARD&&BOARD.checklists)||[]).filter(function(x){ return x.id===id; })[0]; }
+/* D334: РУЧНОЙ порядок (решение владельца) — карточки стоят там, куда их поставили перетаскиванием.
+   Сорт ТОЛЬКО по ord (ручной), затем по дате создания. Статусы 🔥срочно/⭐важно больше НЕ выносят
+   карточку наверх сами — это пометки и фильтр: срочные владелец смотрит через фильтр-чип. Порядок не
+   пересчитывается после дозагрузки — иначе доска перетасовалась бы под пальцем. */
+function bdSort(a,b){
+  var ao=+a.ord||0, bo=+b.ord||0; if(ao!==bo) return ao-bo;
+  return String(b.created||'').localeCompare(String(a.created||''));
+}
+function bdOverdue(c){ if(!c.repeat||!c.nextDate) return false; return String(c.nextDate).slice(0,10) < new Date().toISOString().slice(0,10); }
+/* Стопки доски — ТЕМАТИЧЕСКИЕ группы дел (лист «Стопки дел»), а НЕ раздел «Проекты»: там финансовые
+   проекты со сметами и деньгами, и совпадать они не обязаны (уточнение владельца). Финансовый проект
+   у дела остаётся отдельной пометкой-чипом на стикере. */
+function bdModel(){
+  var arch=(_bdPlace==='archive'), sec=_bdSection;
+  var chks=((BOARD&&BOARD.checklists)||[]).filter(function(c){ return !!c.archived===arch; });
+  chks.forEach(function(c){ c._urg=!!c.urgent; c._imp=!!c.important; c._overdue=bdOverdue(c); });
+  var allSts=((BOARD&&BOARD.stacks)||[]).filter(function(s){ return !!s.archived===arch; });
+  /* D365 (п.6): раздел ДЕЛА = раздел его СТОПКИ (если в стопке), иначе собственный (одиночное дело). Пусто=work. */
+  var stSec={}; allSts.forEach(function(s){ stSec[s.id]=(s.section||'work'); });
+  var chkSec=function(c){ return (c.stackId && stSec[c.stackId]!==undefined) ? stSec[c.stackId] : (c.section||'work'); };
+  var sts=allSts.filter(function(s){ return (s.section||'work')===sec; });   // стопки ТЕКУЩЕЙ страницы
+  var byStack={}; chks.forEach(function(c){ if(c.stackId){ (byStack[c.stackId]=byStack[c.stackId]||[]).push(c); } });
+  var known={}; sts.forEach(function(s){ known[s.id]=1; });
+  var stacks=sts.map(function(s){
+    var kids=(byStack[s.id]||[]).slice().sort(bdSort);
+    var urg=kids.filter(function(c){return c._urg;}).length, imp=kids.filter(function(c){return c._imp;}).length;
+    var reg=kids.filter(function(c){return !!c.repeat;}).length;   // D335: сколько регулярных дел в стопке
+    var done=0,total=0; kids.forEach(function(c){ done+=(+c.done||0); total+=(+c.total||0); });
+    return { _stack:true, id:s.id, title:s.name||'', color:s.color||'', kids:kids, urg:urg, imp:imp, reg:reg,
+      _urg:!!s.urgent||urg>0, _imp:!!s.important||imp>0, _overdue:kids.some(function(c){return c._overdue;}),
+      note:false, ord:s.ord||0, created:s.created||'', done:done, total:total };
+  }).filter(function(s){ return s.kids.length || !arch; });
+  /* Дело без стопки (или со ссылкой на стопку не этой страницы/исчезнувшую) — одиночный стикер ТЕКУЩЕЙ страницы. */
+  return { stacks:stacks, loose:chks.filter(function(c){ return (!c.stackId || !known[c.stackId]) && chkSec(c)===sec; }), all:chks.filter(function(c){ return chkSec(c)===sec; }) };
+}
+function bdFltPass(x){
+  if(!_bdFlt) return true;
+  if(x._stack) return (x.kids||[]).some(bdFltPass);
+  if(_bdFlt==='urg') return !!x.urgent;
+  if(_bdFlt==='imp') return !!x.important;
+  if(_bdFlt==='reg') return !!x.repeat;
+  if(_bdFlt==='note') return !!x.note;
+  return true;
+}
+/* D343→D344: поиск по стикеру — по названию, ВСЕМ пунктам и ИСПОЛНИТЕЛЯМ (c.s — поисковый текст с сервера,
+   собран из всех пунктов+исполнителей), примечанию, проекту и имени стопки. q — уже в нижнем регистре
+   (journal.html: search=value.toLowerCase().trim()). Место (доска/архив) уже отфильтровано в bdModel. */
+function bdSearchPass(c, q){
+  if(!q) return true;
+  var parts=[c.title||'', c.descr||'', c.proj||'', c.s||''];
+  (c.preview||[]).forEach(function(it){ if(it){ if(it.task) parts.push(it.task); if(it.exec) parts.push(it.exec); } });   // подстраховка: свежие правки в превью раньше, чем в c.s
+  if(c.stackId){ var s=((BOARD&&BOARD.stacks)||[]).filter(function(x){ return x.id===c.stackId; })[0]; if(s&&s.name) parts.push(s.name); }
+  return parts.join(' ').toLowerCase().indexOf(q)>=0;
+}
+/* bdCounts..bdAttsHTML (весь блок отрисовки) — 620–902 */
+function bdCounts(m){
+  var c={ all:0,urg:0,imp:0,reg:0,note:0 };
+  m.all.forEach(function(x){ c.all++; if(x.urgent)c.urg++; if(x.important)c.imp++; if(x.repeat)c.reg++; if(x.note)c.note++; });
+  return c;
+}
+function bdPlural(n,a,b,c){ n=Math.abs(+n||0)%100; var d=n%10; if(n>10&&n<20)return c; if(d>1&&d<5)return b; if(d===1)return a; return c; }
+function bdFltName(f){ return f==='urg'?'🔥 срочные':f==='imp'?'⭐ важные':f==='reg'?'🔁 регулярные':f==='note'?'📝 заметки':''; }
+function bdRepeatName(r){ r=String(r||''); return r==='week'?'каждую неделю':r==='month'?'каждый месяц':r==='quarter'?'раз в квартал':r==='year'?'раз в год':('каждые '+r+' дн'); }
+/* Следующая дата регулярного дела (пункт 6: считаем на клиенте, т.к. статусы больше не пишутся сразу). */
+function bdNextDate(rep){
+  var d=new Date();
+  if(rep==='week') d.setDate(d.getDate()+7);
+  else if(rep==='month') d.setMonth(d.getMonth()+1);
+  else if(rep==='quarter') d.setMonth(d.getMonth()+3);
+  else if(rep==='year') d.setFullYear(d.getFullYear()+1);
+  else return '';
+  var p=function(n){ return (n<10?'0':'')+n; };
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+}
+
+/* ── отрисовка ─────────────────────────────────────────────────────────────────── */
+/* D337: фильтр — скруглённый квадрат в фирменной обводке цвета смысла; эмодзи по центру, счётчик —
+   цветным бейджем в углу. Активный (выбранный) фильтр — класс on (светлая заливка). data-bflt как раньше. */
+function bdChip(key,ico,n,cls){
+  var on=(_bdFlt===key);
+  return '<span class="bd-chip '+cls+(on?' on':'')+'" data-bflt="'+key+'"><i class="ic">'+ico+'</i><b class="bd-cnt2">'+n+'</b></span>';
+}
+/* D337: строка ДЕЛА — В ОДНУ строку (раскладка владельца). Слева СТОПКОЙ: «ДЕЛА» сверху + общий счётчик
+   ▦ под ним (узкий блок → справа больше места). Затем фильтры важные/срочные/регулярные/заметки (в обводке,
+   всегда видны — 🔁 больше не выдавливается). У правого края — «＋ дело» (залитый) и «⚙ ещё» (слайдер). */
+function bdHead(m){
+  var c=bdCounts(m), t=(_bdPlace==='archive')?'Архив':'ДЕЛА';
+  var chips='<div class="bd-chips">'
+      +bdChip('imp','⭐',c.imp,'is-imp')+bdChip('urg','🔥',c.urg,'is-urg')
+      +bdChip('reg','🔁',c.reg,'is-reg')+bdChip('note','📝',c.note,'is-note')+'</div>';
+  var menu=_bdMenu ? ('<div class="bd-hdmenu">'
+        +'<span class="bd-den">'+[2,3,4].map(function(k){ return '<span class="'+(_bdCols===k?'on':'')+'" data-bcols="'+k+'">'+k+'</span>'; }).join('')+'</span>'
+        +'<span class="bd-ico" data-bnewstack2="1" title="Новая стопка дел">'+msy('create_new_folder')+'</span>'
+        +'<span class="bd-ico" data-bskin="1" title="Цвет подложки">'+msy('texture')+'</span>'
+        +'<span class="bd-ico'+(_bdPlace==='archive'?' on':'')+'" data-bplace="1" title="Архив">'+msy('inventory_2')+'</span>'
+        +'<span class="bd-ico" data-brefresh="1" title="Обновить">'+msy('refresh')+'</span>'
+      +'</div>') : '';
+  return '<div class="bd-hd"><div class="bd-hd-t">'
+      +'<div class="bd-hd-title"><b>'+t+'</b>'
+        +'<span class="bd-cnt-all" data-bflt="" title="Все дела">▦ '+c.all+'</span></div>'
+      +chips
+      +'<span class="bd-hd-r">'
+        +'<span class="bd-seg" title="Рабочие / Личные">'
+          +'<span class="bd-seg-i'+(_bdSection==='work'?' on':'')+'" data-bsec="work" title="Рабочие">'+msy('business_center')+'</span>'
+          +'<span class="bd-seg-i'+(_bdSection==='personal'?' on':'')+'" data-bsec="personal" title="Личные">'+msy('person')+'</span>'
+        +'</span>'
+        +'<span class="bd-ico'+(_bdMenu?' on':'')+'" data-bhdmenu="1" title="Ещё: плотность · стопка · подложка · архив">'+msy('tune')+'</span>'
+      +'</span></div>'+menu+'</div>'
+    +(_bdFlt?('<div class="bd-fltrow">Показаны только: '+bdFltName(_bdFlt)+' · <u data-bflt="">показать все</u></div>'):'');
+}
+function bdBoxHTML(done){ return '<i class="bd-box'+(done?' on':'')+'"></i>'; }
+/* Инициалы исполнителя — первые буквы двух слов, иначе первые 2 символа. Заглавными. */
+function bdInitials(name){
+  var p=String(name||'').trim().split(/\s+/).filter(Boolean);
+  if(!p.length) return '';
+  var s=(p.length>1)?(p[0][0]+p[1][0]):p[0].slice(0,2);
+  return s.toUpperCase();
+}
+/* Контраст текста к фону кружка: по яркости фона — тёмный или белый (первые буквы должны читаться). */
+function bdOnColor(hex){
+  var m=/^#?([0-9a-f]{6})$/i.exec(String(hex||'')); if(!m) return '#1B2A4E';
+  var n=parseInt(m[1],16), r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+  return (0.299*r+0.587*g+0.114*b) > 150 ? '#1B2A4E' : '#fff';
+}
+function bdExecDot(name,small){
+  var col=bdExecColor(name), cls=small?'bd-exmini':'bd-exdot';
+  return '<i class="'+cls+'" style="background:'+col+';color:'+bdOnColor(col)+'" title="'+esc(name)+'">'+esc(bdInitials(name))+'</i>';
+}
+/* п.3: несколько исполнителей на пункте. exec хранится строкой «Имя, Имя»; в пункте показываем ТОЛЬКО
+   цветные кружки с инициалами (без имён — по просьбе владельца). */
+function bdExecList(str){ var seen={}, out=[]; String(str||'').split(/\s*[,;]\s*/).forEach(function(s){ s=s.trim(); if(!s) return; var k=s.toLowerCase(); if(seen[k]) return; seen[k]=1; out.push(s); }); return out; }   // D367: дедуп по имени — один исполнитель не показывается/не сохраняется дважды
+function bdExecDots(str,small){ return bdExecList(str).map(function(n){ return bdExecDot(n,small); }).join(''); }
+/* п.4: подпись срока — диапазон d1–d2 если задан d1 и он отличается от d2, иначе одиночная дата (d2). */
+function bdDueLabel(it){ var d1=String(it.d1||'').slice(0,10), d2=String(it.due||it.d2||'').slice(0,10); if(!d1&&!d2) return ''; if(d1&&d2&&d1!==d2) return fmtDate(d1)+' – '+fmtDate(d2); return fmtDate(d2||d1); }
+function bdBodyHTML(c,full){
+  var out='';
+  if(String(c.kind||'')==='текст'){
+    var lines=String(c.descr||'').split('\n').filter(function(s){ return s.trim(); });
+    var show=full?lines:lines.slice(0,4);
+    out=show.map(function(s){ return '<div class="bd-li"><span class="bd-txt">'+esc(s)+'</span></div>'; }).join('');
+    if(!full && lines.length>4) out+='<div class="bd-more">ещё '+(lines.length-4)+'</div>';
+    if(!lines.length) out+='<div class="bd-more">пусто</div>';
+    return out;
+  }
+  var items = full ? (_bdItems[c.id]||null) : (c.preview||[]);
+  if(full && !items) return '<div class="bd-more">Загружаю пункты…</div>';
+  /* Свёрнутый пункт (запрос владельца): текст + справа СРОК и кружок исполнителя с инициалами. */
+  out=items.map(function(it){
+    var done=(+it.pct>=100), ex=String(it.exec||'').trim(), dl=bdDueLabel(it);
+    /* D369 (запрос владельца): свёрнутый пункт = текст в ОДНУ строку с «…», под ним МЕЛКО срок+исполнители
+       одной строкой → максимум 2 строки на пункт. Полный текст/срок видно при раскрытии дела. */
+    var meta='';
+    if(dl) meta+='<span class="bd-lidate">'+dl+'</span>';
+    if(ex) meta+='<span class="bd-exdots">'+bdExecDots(ex,true)+'</span>';
+    return '<div class="bd-ci" data-bitem="'+esc(it.id||'')+'">'
+      +'<div class="bd-cirow">'+bdBoxHTML(done)+'<span class="bd-citxt'+(done?' is-done':'')+'">'+esc(it.task||'')+'</span></div>'
+      +(meta?('<div class="bd-cimeta">'+meta+'</div>'):'')
+      +'</div>';
+  }).join('');
+  if(!full){
+    var left=(+c.total||0)-items.length, meta=[];
+    if(left>0) meta.push('ещё '+left);
+    if(+c.total>0) meta.push(c.done+'/'+c.total);
+    if(meta.length) out+='<div class="bd-more">'+meta.join(' · ')+'</div>';
+    if(!items.length && !+c.total) out+='<div class="bd-more">нет пунктов</div>';
+  }
+  return out;
+}
+function bdStickerHTML(c){
+  var st=[]; if(c.important) st.push('<span class="bd-st" style="color:#F07C10">'+msy('star')+'</span>');
+  if(c.repeat) st.push('<span class="bd-st" style="color:#0F6E56">'+msy('repeat')+'</span>');
+  if(c.note) st.push('<span class="bd-st" style="color:#3C3489">'+msy('sticky_note_2')+'</span>');
+  var body=bdBodyHTML(c,false);
+  if(+c.att>0) body+='<div class="bd-more bd-attn">'+msy('attach_file')+(+c.att)+'</div>';   // блок 2: значок числа вложений
+  if(c.repeat) body+='<div class="bd-more reg">'+bdRepeatName(c.repeat)+(c.nextDate?(' · '+fmtDate(c.nextDate)):'')+'</div>';
+  else if(c.due) body+='<div class="bd-more">до '+fmtDate(c.due)+'</div>';
+  // D324: чип финансового проекта на стикере убран — доска о темах-стопках
+  /* D327 пункт 2: свёрнутый стикер — БЕЗ панелей/свайпа. Тап = раскрыть дело. Статусы/палитра только
+     в раскрытом. Пункт 4: счётчик выполненных (done/total) в шапке рядом со статусами. */
+  var cnt=(String(c.kind||'')!=='текст' && +c.total>0)?('<span class="bd-st bd-stcnt">'+c.done+'/'+c.total+'</span>'):'';
+  var spine='<div class="bd-spine"><span class="bd-pin">'+msy('push_pin')+'</span><span class="bd-nm">'+esc(c.title||'(без названия)')+'</span>'+cnt+st.join('')+'</div>';
+  return '<div class="bd-sticker'+(c.urgent?' is-urg':'')+(c.note?' is-note':'')+'" style="'+bdVars(c.color)+'" data-bchk="'+c.id+'">'
+    +spine+'<div class="bd-bd">'+body+'</div></div>';
+}
+/* Пружина из 16 витков поверх кромки стопки — плотная спираль блокнота (D318). */
+function bdSpiralHTML(){
+  var coils=''; for(var i=0;i<16;i++) coils+='<i class="bd-coil"></i>';
+  return '<div class="bd-spiral">'+coils+'</div>';
+}
+function bdStackHTML(s){
+  var kids=s.kids.slice(0,3), left=s.kids.length-kids.length;
+  var mini=kids.map(function(c){
+    var kk=bdK(c.color);
+    var right=c.urgent?'<span class="bd-mini-r" style="color:'+kk.on+'">'+msy('local_fire_department')+'</span>'
+      :((+c.total>0)?('<span class="bd-mini-r" style="color:'+kk.on+'">'+c.done+'/'+c.total+'</span>'):'');
+    return '<div class="bd-mini" style="--km:'+kk.k+';--km-on:'+kk.on+'"><span>'+esc(c.title||'(без названия)')+'</span>'+right+'</div>';
+  }).join('');
+  var echo=[]; if(s.urg) echo.push('<span data-becho="urg">🔥 '+s.urg+'</span>'); if(s.imp) echo.push('<span data-becho="imp">⭐ '+s.imp+'</span>');
+  if(s.reg) echo.push('<span data-becho="reg">🔁 '+s.reg+'</span>');   // D335: значок регулярных на стопке (как срочные/важные)
+  /* Цвет стопки — маленькой кнопкой-палитрой в углу шапки (как у стикера), а не тапом по всей шапке
+     (тот конфликтовал со входом в стопку). Тап по кнопке → шапка превращается в ряд шариков. */
+  var spine=(_bdPal===s.id)
+    ? ('<div class="bd-pal">'+BD_COLORS.map(function(k){ return '<i class="bd-swatch'+(k===(s.color||'none')?' on':'')+(k==='none'?' nc':'')+'" data-bsetcs="'+s.id+'" data-k="'+k+'" style="background:'+BD_K[k].k+'"></i>'; }).join('')+'</div>')
+    : ('<div class="bd-spine"><span class="bd-nm">'+esc(s.title||'(без названия)')+'</span><span class="bd-stpal" data-bstpal="'+s.id+'" title="Цвет стопки">'+msy('palette')+'</span></div>');
+  return '<div class="bd-stack" data-bstack="'+s.id+'">'
+    +(s.kids.length>1?'<i class="bd-edge1"></i>':'')+'<i class="bd-edge2"></i>'
+    +'<div class="bd-fgcard bd-sticker" style="'+bdVars(s.color)+'">'
+      +bdSpiralHTML()
+      +spine
+      +'<div class="bd-bd">'+(echo.length?('<div class="bd-echo">'+echo.join('')+'</div>'):'')+mini
+        +(left>0?('<div class="bd-more">ещё '+left+' '+bdPlural(left,'стикер','стикера','стикеров')+'</div>'):'')
+        +'<div class="bd-more">'+s.kids.length+' '+bdPlural(s.kids.length,'задача','задачи','задач')+(s.total?(' · '+s.done+'/'+s.total):'')+'</div>'
+      +'</div></div></div>';
+}
+function bdEmpty(kind){
+  var M={ flt:{i:'🔍',t:'Ничего не нашлось по фильтру',b:'Показать все',a:'clr'},
+    search:{i:'🔍',t:'Ничего не нашлось по запросу',b:'Очистить поиск',a:'clrsearch'},   // D343
+    stack:{i:'📄',t:'В стопке нет дел',b:'＋ Добавить',a:'add'},
+    board:{i:'📌',t:'Доска чистая',b:'＋ Новое дело',a:'add'},
+    arch:{i:'🗄',t:'Архив пуст',b:'‹ К доске',a:'place'},
+    err:{i:'⚠',t:'Не удалось загрузить: '+esc(_bdErr),b:'Повторить',a:'reload'} }[kind]||{};
+  return '<div class="bd-empty"><div class="bd-em-ic">'+M.i+'</div><div class="bd-em-t">'+M.t+'</div><span class="bd-em-b" data-bempty="'+M.a+'">'+M.b+'</span></div>';
+}
+/* ОТКРЫТОЕ ДЕЛО — тот же стикер, просто во весь экран, и ВСЁ делается здесь же: правка названия и
+   пунктов, добавление, отметки, сохранение, удаление. Никакого «открыть целиком» — второго экрана нет
+   (решение владельца). Правки копим локально и пишем ОДНИМ вызовом saveChecklistAll по «Сохранить»:
+   так же, как экран чек-листа, и без записи на каждую букву. */
+function bdOpenHTML(c){
+  var st=[]; if(c.important) st.push('<span class="bd-st" style="color:#633806">⭐</span>');
+  if(c.repeat) st.push('<span class="bd-st" style="color:#0F6E56">🔁</span>');
+  if(c.note) st.push('<span class="bd-st" style="color:#3C3489">📝</span>');
+  var isText=(String(c.kind||'')==='текст');
+  var foot=[];
+  var its=_bdItems[c.id];
+  if(its && !isText) foot.push(its.filter(function(x){ return +x.pct>=100; }).length+'/'+its.length);
+  if(c.repeat) foot.push(bdRepeatName(c.repeat)+(c.nextDate?(' · '+fmtDate(c.nextDate)):''));
+  else if(c.due) foot.push('до '+fmtDate(c.due));
+  // D324: финансовый проект (HARTMANN…) на доске НЕ показываем — доска про темы-стопки, не про финансы
+  /* ДВА РЕЖИМА тела (переключаются кнопкой чек-лист/заметка, kind):
+     • «пункты» (чек-лист) — строки с чекбоксом, СРОКОМ и ИСПОЛНИТЕЛЕМ (по ТЗ) + удаление пункта + «＋ пункт».
+     • «текст» (заметка) — просто одно текстовое поле, БЕЗ дат/исполнителей/чекбоксов.
+     Текст — полем/textarea, а не contenteditable: редактируемый текст в GAS-iframe не принимал ввод. */
+  var body;
+  if(isText){
+    body='<textarea class="bd-inp bd-note" data-bdescr="1" placeholder="Текст заметки" rows="8">'+esc(c.descr||'')+'</textarea>';
+  } else if(!its){
+    body='<div class="bd-more">Загружаю пункты…</div>';
+  } else {
+    /* СВАЙП ВЛЕВО по строке (запрос владельца) открывает рельс: дата · исполнитель · перенести · удалить.
+       Строка = чекбокс + текст + подпись (дата/исполнитель), действия спрятаны за свайпом — чище. */
+    body=its.map(function(it,i){
+      var done=(+it.pct>=100), ex=String(it.exec||'').trim(), dl=bdDueLabel(it);
+      var sub=[];
+      if(dl) sub.push('<span class="bd-lidate">'+msy('event')+' '+dl+'</span>');
+      if(ex) sub.push('<span class="bd-exdots">'+bdExecDots(ex,true)+'</span>');
+      return '<div class="bd-liwrap" data-biwrap="'+i+'">'
+        +'<div class="bd-lirail">'
+          +'<span class="bd-rl" data-birail="date" data-bi="'+i+'" title="Срок">'+msy('event')+'</span>'
+          +'<span class="bd-rl" data-birail="exec" data-bi="'+i+'" title="Исполнители">'+msy('handyman')+'</span>'
+          +'<span class="bd-rl" data-birail="copy" data-bi="'+i+'" title="Копировать">'+msy('content_copy')+'</span>'
+          +'<span class="bd-rl" data-birail="move" data-bi="'+i+'" title="Перенести в дело">'+msy('swap_horiz')+'</span>'
+          +'<span class="bd-rl danger" data-birail="del" data-bi="'+i+'" title="Удалить">'+msy('delete')+'</span>'
+        +'</div>'
+        +'<div class="bd-li" data-birow="'+i+'"><i class="bd-box'+(done?' on':'')+'" data-bibox="'+i+'"></i>'
+          +'<textarea class="bd-inp bd-itxt'+(done?' is-done':'')+'" data-bitxt="'+i+'" rows="1" placeholder="Что сделать">'+esc(it.task||'')+'</textarea>'
+          +'</div>'+(sub.length?('<div class="bd-itsub">'+sub.join(' ')+'</div>'):'')
+        +'</div>';
+    }).join('');
+  }
+  var A=function(cls,attr,ico,tip){ return '<span class="bd-oact'+(cls?(' '+cls):'')+'" '+attr+' title="'+tip+'">'+ico+'</span>'; };
+  var cntH=(!isText && its)?('<span class="bd-st bd-stcnt">'+its.filter(function(x){ return +x.pct>=100; }).length+'/'+its.length+'</span>'):'';
+  /* D327 пункт 5: СВАЙП (или тап значка ⚙) по шапке раскрытого дела → панель СТАТУСЫ+ПАЛИТРА.
+     В подвале их больше нет → он в ОДНУ строку. Счётчик (пункт 4) — в шапке рядом со статусами. */
+  var head=(_bdPal===c.id)
+    ? ('<div class="bd-spine bd-headpal"><span class="bd-pin">'+msy('push_pin')+'</span>'
+        +'<i class="bd-pst pst-urg'+(c.urgent?' on':'')+'" data-bpst="urgent" data-bid="'+c.id+'" title="Срочно">'+msy('local_fire_department')+'</i>'
+        +'<i class="bd-pst pst-imp'+(c.important?' on':'')+'" data-bpst="important" data-bid="'+c.id+'" title="Важно">'+msy('star')+'</i>'
+        +'<i class="bd-pst pst-reg'+(c.repeat?' on':'')+'" data-brep="'+c.id+'" title="Регулярно (частота)">'+msy('repeat')+'</i>'   /* D339: регулярность переехала сюда из подвала — тап открывает выбор частоты */
+        +'<i class="bd-pst pst-note'+(c.note?' on':'')+'" data-bpst="note" data-bid="'+c.id+'" title="Заметка">'+msy('sticky_note_2')+'</i>'
+        +'<i class="bd-pdiv"></i>'
+        +'<span class="bd-bigslide" data-bslide="'+c.id+'"><span class="bd-bigsw"'+(bdColKey(c.color)==='none'?' data-nc="1"':'')+' style="background:'+bdK(c.color).k+'"><span class="bd-slchev l">‹</span><span class="bd-slchev r">›</span></span><span class="bd-slname" data-bslidenm="1">'+bdK(c.color).nm+'</span></span>'
+        +'<span class="bd-ox" data-bheadclose="'+c.id+'">'+msy('check')+'</span></div>')
+    : ('<div class="bd-spine" data-bheadswipe="'+c.id+'"><span class="bd-pin">'+msy('push_pin')+'</span>'
+        +'<input class="bd-nm bd-titleinp" data-btitle="1" value="'+esc(c.title||'')+'" placeholder="Название дела">'+cntH+st.join('')
+        +'<span class="bd-ohd" data-bheadpal="'+c.id+'" title="Статусы и цвет">'+msy('tune')+'</span>'
+        +'<span class="bd-ox" data-bclose="1">'+msy('close')+'</span></div>');
+  return '<div class="bd-open" data-bopenbg="1"><div class="bd-open-card'+(c.urgent?' is-urg':'')+'" style="'+bdVars(c.color)+'">'
+    +head
+    +'<div class="bd-open-bd">'+body
+      +((!isText && its)?'<div class="bd-open-add" data-baddit="'+c.id+'">＋ пункт</div>':'')
+      +bdAttsHTML(c)
+      +(foot.length?('<div class="bd-open-foot">'+foot.join(' · ')+'</div>'):'')+'</div>'
+    /* Пункт 5: подвал в ОДНУ строку — статусы и палитра ушли в шапку (свайп). */
+    /* D339: подвал разгружен — 🔁 регулярность ушла в настройки (⚙), 🗄 архив — внутрь «Переместить». */
+    +'<div class="bd-open-acts">'
+      +A('save','data-bsave="'+c.id+'"', msy('save'), 'Сохранить')
+      +A(c.due?'on-due':'','data-bdue="'+c.id+'"', msy('event'), 'Срок дела')
+      +A('','data-bkind="'+c.id+'"', msy(String(c.kind||'')==='текст'?'checklist':'notes'), 'Пункты / текст')
+      +A('','data-battadd="'+c.id+'"', msy('attach_file'), 'Прикрепить')
+      +((!isText && its)?A('toest','data-btoest="'+c.id+'"', msy('request_quote'), 'В смету (разобрать пункты)'):'')   // D349: пункты дела → смета через Gemini
+      +A('','data-bmove="'+c.id+'"', msy('drive_file_move'), 'Переместить (стопка / архив)')
+      +A('send','data-bsend="'+c.id+'"', msy('send'), 'Отправить')
+      +A('del','data-bdel="'+c.id+'"', msy('delete'), 'Удалить')
+    +'</div></div></div>';
+}
+function bdExecColor(name){
+  var m=(BOARD&&BOARD.execColors)||{};
+  return m[String(name||'').trim()] || (typeof execColor==='function' ? execColor(name) : '#B4B2A9');
+}
+/* ── ВЛОЖЕНИЯ (блок 2): плитки фото/файлов + прикрепить (камера/галерея/файл) ── */
+var _bdAtt={};      // chkId → список вложений (догружаем при раскрытии)
+var _bdAttUp={};    // chkId → сколько файлов сейчас грузится (для плиток-заглушек)
+function bdIsImg(mime){ return /^image\//i.test(String(mime||'')); }
+function bdAttsHTML(c){
+  var list=_bdAtt[c.id], up=_bdAttUp[c.id]||0, tiles='';
+  if(list){
+    tiles=list.map(function(a){
+      /* D340: превью фото. Раньше <img src> брал ССЫЛКУ-СТРАНИЦУ Диска (/view) — это HTML, не картинка,
+         поэтому плитка была пустой/битой. Берём ПРЯМОЙ thumbnail по fileId (работает для файлов с доступом
+         «по ссылке»). isImg — по mime ИЛИ по расширению имени (mime иногда пустой у старых записей). */
+      var isImg=bdIsImg(a.mime)||/\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(a.name||'');
+      var src=(isImg&&a.fileId)?('https://drive.google.com/thumbnail?id='+esc(a.fileId)+'&sz=w600'):esc(a.url);
+      var inner=isImg
+        ? '<img src="'+src+'" alt="" loading="lazy">'
+        : '<span class="fic">'+msy('description')+'</span>';
+      var nm=esc(a.name||'файл');
+      /* D364: имя ПОД плиткой (и фото, и документ), длинное режется «…»; тап по имени — переименовать. */
+      return '<span class="bd-attw">'
+        +'<span class="bd-att" data-battopen="'+esc(a.url)+'">'+inner+'<span class="axo" data-battdel="'+a.id+'">✕</span></span>'
+        +'<span class="bd-attnm" data-battren="'+a.id+'" title="'+nm+' · тап — переименовать">'+nm+'</span></span>';
+    }).join('');
+  }
+  for(var k=0;k<up;k++) tiles+='<span class="bd-attw"><span class="bd-att up"><span class="fic">'+msy('hourglass_empty')+'</span></span></span>';
+  /* D321: большой ＋ убран (кнопка 📎 теперь в подвале действий). Секцию показываем только если есть
+     плитки/идёт загрузка — иначе пустого блока нет. */
+  if(!tiles) return '';
+  return '<div class="bd-atts">'+tiles+'</div>';
+}
+
+/* ===== ОФЛАЙН-СЛОЙ: данные из localStorage, без интернета ===== */
+/* Состояние доски — те же имена, что в оригинале, но питается локальными черновиками. */
+var BOARD=null, _bdErr='', _bdItems={};
+var _bdOpen='', _bdPal='', _bdStack='', _bdFlt='', _bdSection='work', _bdPlace='board', _bdMenu=false, _bdCols=2;
+try{ _bdCols=+sessionStorage.getItem('pd_bcols')||2; }catch(e){}
+var OD_KEY='pd_offline_drafts';
+
+function odToast(t){ var e=document.getElementById('odToast'); if(!e) return; e.textContent=t; e.classList.add('on'); clearTimeout(e._t); e._t=setTimeout(function(){ e.classList.remove('on'); },1800); }
+
+/* производные поля стикера (как их присылает сервер): total/done/preview из items+kind */
+function odRecompute(c){
+  var items=c.items||[]; var isText=(String(c.kind||'')==='текст');
+  c.total=isText?0:items.length;
+  c.done=items.filter(function(x){ return +x.pct>=100; }).length;
+  c.preview=isText?[]:items.slice(0,4).map(function(it){ return { id:it.id||'', task:it.task||'', exec:it.exec||'', pct:it.pct||0, due:it.due||'', d1:it.d1||'', d2:it.d2||'' }; });
+}
+/* полная форма черновика = ровно то, что кладёт настоящий bdCreateNew (+items/synced для офлайна) */
+function odMake(o){
+  var b={ id:o.id, stackId:'', section:'work', projId:'', proj:'', title:'', descr:'', archived:false, arcCascade:false,
+    color:'', urgent:false, important:false, note:false, kind:'', ord:0, due:'', repeat:'', nextDate:'',
+    total:0, done:0, preview:[], att:0, items:[], synced:false, created:new Date().toISOString() };
+  for(var k in o){ b[k]=o[k]; } return b;
+}
+/* Демо-черновики первого запуска — РЕАЛЬНЫЕ дела (ТЗ шаг 8), без выдумок. */
+function odSeed(){
+  var it=function(t){ return { id:'', task:t, pct:0, ord:0, exec:'', due:'', d1:'', d2:'' }; };
+  var arr=[
+    odMake({ id:'od1', title:'УСТАНОВКА ЛАМП', color:'red', urgent:true, ord:1 }),
+    odMake({ id:'od2', title:'Подготовка серверной SECURITY ROOM', color:'blue', ord:2,
+      items:[ it('Смонтировать стойку'), it('Протянуть витую пару'), it('Настроить ИБП') ] }),
+    odMake({ id:'od3', title:'ЗАКАЗЫ В РФ', color:'amber', important:true, kind:'текст', ord:3,
+      descr:'Отправить 2 телефона на ремонт с Володей' }),
+    odMake({ id:'od4', title:'ПОКУПКИ', color:'graphite', ord:4 })
+  ];
+  arr.forEach(odRecompute); return arr;
+}
+function odLoad(){
+  var raw=null; try{ raw=localStorage.getItem(OD_KEY); }catch(e){}
+  if(!raw){ var s=odSeed(); odStore(s); return s; }
+  try{ var a=JSON.parse(raw); return Array.isArray(a)&&a.length?a:odSeed(); }catch(e){ return odSeed(); }
+}
+function odStore(arr){ try{ localStorage.setItem(OD_KEY, JSON.stringify(arr)); }catch(e){} }
+function odRebuild(){ var d=odLoad(); BOARD={ checklists:JSON.parse(JSON.stringify(d)), stacks:[], execColors:{} }; }
+function odNewId(){ return 'od'+Date.now().toString(36)+Math.floor(Math.random()*1000); }
+
+/* renderList: структура доски ДОСЛОВНО как в bdRender (corklayer + bd-top + bd-board/bd-grid + fab),
+   но без сервера/жестов — прогоняем локальные черновики через настоящие bdStickerHTML/bdStackHTML. */
+function renderList(){
+  var host=document.getElementById('board'); if(!host) return;
+  document.documentElement.style.setProperty('--bcols', _bdCols);
+  var cls='bd-board'+(_bdCols===3?' c3':_bdCols===4?' c4':'');
+  var m=bdModel(), cards=[], crumb='';
+  if(_bdStack){
+    var st=m.stacks.filter(function(s){ return s.id===_bdStack; })[0];
+    if(!st){ _bdStack=''; }
+    else{
+      crumb='<div class="bd-crumb"><span data-bback="1" style="flex:1;display:inline-flex;align-items:center;gap:6px"><span class="bd-crumb-a">‹</span> Доска / '+esc(st.title)+'</span></div>';
+      cards=st.kids.filter(bdFltPass).map(bdStickerHTML);
+      if(!cards.length) cards=[bdEmpty(_bdFlt?'flt':'stack')];
+    }
+  }
+  if(!_bdStack){
+    var items;
+    if(_bdFlt){ items=m.all.filter(bdFltPass); }
+    else{ items=m.stacks.concat(m.loose); }
+    items.sort(bdSort);
+    cards=items.map(function(x){ return x._stack?bdStackHTML(x):bdStickerHTML(x); });
+    if(!cards.length) cards=[bdEmpty(_bdFlt?'flt':(_bdPlace==='archive'?'arch':'board'))];
+  }
+  var solo=(cards.length===1 && cards[0].indexOf('bd-empty')>=0);
+  var open=_bdOpen ? (bdChk(_bdOpen)?bdOpenHTML(bdChk(_bdOpen)):'') : '';
+  host.innerHTML='<div class="bd-corklayer" id="bdCork"></div>'
+    +'<div class="bd-top">'+bdHead(m)+crumb+'</div>'
+    +'<div class="'+cls+'">'+(solo?cards[0]:('<div class="bd-grid">'+cards.join('')+'</div>'))+'</div>'
+    +(_bdOpen?'':'<span class="bd-fab" data-bnew="1" title="Новое дело">'+msy('add')+'</span>')+open;
+  odUpdateFlush();
+}
+
+/* забрать ввод открытой карточки в модель перед перерисовкой (иначе renderList затрёт) */
+function odSyncOpen(){
+  if(!_bdOpen) return; var c=bdChk(_bdOpen); if(!c) return;
+  var t=document.querySelector('.bd-open-card [data-btitle]'); if(t) c.title=t.value;
+  var d=document.querySelector('.bd-open-card [data-bdescr]'); if(d) c.descr=d.value;
+  var its=_bdItems[_bdOpen];
+  if(its){ [].forEach.call(document.querySelectorAll('.bd-open-card [data-bitxt]'), function(ta){ var i=+ta.getAttribute('data-bitxt'); if(its[i]) its[i].task=ta.value; }); }
+}
+function odFocusTitle(){ setTimeout(function(){ var t=document.querySelector('.bd-open-card [data-btitle]'); if(t){ try{ t.focus(); }catch(e){} } },30); }
+function odOpen(id){ var c=bdChk(id); if(!c) return; _bdItems[id]=JSON.parse(JSON.stringify(c.items||[])); _bdOpen=id; _bdPal=''; renderList(); odFocusTitle(); }
+function odCloseDiscard(){ _bdOpen=''; _bdPal=''; _bdItems={}; odRebuild(); renderList(); }   // крестик = отмена (перечитать из хранилища)
+function odNew(){
+  var id=odNewId();
+  var c=odMake({ id:id, section:_bdSection, ord:(BOARD.checklists.length+1) });
+  BOARD.checklists.push(c); _bdItems[id]=[]; _bdOpen=id; _bdPal=''; renderList(); odFocusTitle();
+}
+function odSave(){
+  if(!_bdOpen) return; odSyncOpen(); var c=bdChk(_bdOpen); if(!c) return;
+  c.items=_bdItems[_bdOpen]||c.items||[]; odRecompute(c); c.synced=false;   // правка → в буфер «Залить потом»
+  odStore(BOARD.checklists);
+  _bdOpen=''; _bdPal=''; _bdItems={}; odRebuild(); renderList(); odToast('Черновик сохранён локально');
+}
+function odDelete(){
+  if(!_bdOpen) return; var id=_bdOpen;
+  BOARD.checklists=BOARD.checklists.filter(function(x){ return x.id!==id; });
+  odStore(BOARD.checklists); _bdOpen=''; _bdPal=''; _bdItems={}; odRebuild(); renderList(); odToast('Удалено');
+}
+/* «Залить»: сама заливка идёт в ОНЛАЙН-обёртке (у неё живой тёплый app-iframe журнала, откуда без CORS
+   зовётся pushDrafts). Есть сеть → уходим в обёртку './' (index.html): она увидит непустой буфер
+   pd_offline_drafts и после готовности журнала (pdready) пошлёт pdFlush, а по ответу пометит залитое
+   synced. Нет сети → ничего не теряем, буфер ждёт до появления сети. localStorage общий (один origin). */
+function odFlush(){
+  if(navigator.onLine){
+    odToast('Есть сеть — открываю журнал для заливки…');
+    setTimeout(function(){ try{ location.replace('./'); }catch(e){ location.href='./'; } }, 350);
+    return;
+  }
+  odToast('Нет сети — залью, когда появится');
+}
+function odUpdateFlush(){
+  var d=(BOARD&&BOARD.checklists)||[]; var n=d.filter(function(c){ return c.synced===false; }).length;
+  var b=document.getElementById('odFlush'); if(b){ b.textContent='Залить ('+n+')'; b.disabled=(n===0); }
+}
+function odNet(){
+  var on=navigator.onLine; var dot=document.getElementById('odDot'), lbl=document.getElementById('odNet');
+  if(dot) dot.classList.toggle('on', on); if(lbl) lbl.textContent=on?'сеть есть':'офлайн';
+}
+
+/* делегирование кликов на #board (переживает перезапись innerHTML) — тап-версия жестов доски */
+function odBind(){
+  var host=document.getElementById('board'); if(!host||host._od) return; host._od=true;
+  host.addEventListener('click', function(e){
+    var t=e.target, el;
+    // ── редактор ──
+    if(t.closest('[data-bsave]')){ odSave(); return; }
+    if(t.closest('[data-bdel]')){ odDelete(); return; }
+    if(t.closest('[data-bclose]')){ odCloseDiscard(); return; }
+    if((el=t.closest('[data-bopenbg]')) && t===el){ odCloseDiscard(); return; }
+    if(t.closest('[data-baddit]')){ odSyncOpen(); var its=_bdItems[_bdOpen]||(_bdItems[_bdOpen]=[]); its.push({ id:'', task:'', pct:0, ord:its.length+1, exec:'', due:'', d1:'', d2:'' }); renderList(); setTimeout(function(){ var f=document.querySelectorAll('.bd-open-card [data-bitxt]'); if(f.length){ try{ f[f.length-1].focus(); }catch(_){} } },30); return; }
+    if(el=t.closest('[data-bibox]')){ var i=+el.getAttribute('data-bibox'); odSyncOpen(); var x=(_bdItems[_bdOpen]||[])[i]; if(x){ x.pct=(+x.pct>=100?0:100); } renderList(); return; }
+    if(el=t.closest('[data-bpst]')){ var k=el.getAttribute('data-bpst'); odSyncOpen(); var c=bdChk(_bdOpen); if(c){ c[k]=!c[k]; } renderList(); return; }
+    if(t.closest('[data-brep]')){ odSyncOpen(); var c2=bdChk(_bdOpen); if(c2){ if(c2.repeat){ c2.repeat=''; c2.nextDate=''; } else { c2.repeat='week'; c2.nextDate=bdNextDate('week'); } } renderList(); return; }
+    if(t.closest('[data-bheadpal]')){ odSyncOpen(); _bdPal=_bdOpen; renderList(); return; }
+    if(t.closest('[data-bheadclose]')){ odSyncOpen(); _bdPal=''; renderList(); return; }
+    if(el=t.closest('.bd-slchev')){ odSyncOpen(); var c3=bdChk(_bdOpen); if(c3){ var idx=BD_COLORS.indexOf(bdColKey(c3.color)); if(idx<0) idx=0; idx=(idx+(el.classList.contains('l')?-1:1)+BD_COLORS.length)%BD_COLORS.length; c3.color=BD_COLORS[idx]; } renderList(); return; }
+    if(t.closest('[data-bkind]')){ odSyncOpen(); var c4=bdChk(_bdOpen); if(c4){ if(String(c4.kind||'')==='текст'){ c4.kind=''; var ls=String(c4.descr||'').split('\n').filter(function(s){ return s.trim(); }); _bdItems[_bdOpen]=ls.map(function(s,ix){ return { id:'', task:s, pct:0, ord:ix+1, exec:'', due:'', d1:'', d2:'' }; }); } else { c4.kind='текст'; c4.descr=(_bdItems[_bdOpen]||[]).map(function(z){ return z.task||''; }).filter(function(s){ return s; }).join('\n'); } } renderList(); return; }
+    if(t.closest('[data-bmove],[data-bsend],[data-bdue],[data-battadd],[data-btoest],[data-battopen],[data-battdel],[data-battren]')){ odToast('Недоступно офлайн'); return; }
+    // ── доска ──
+    if(t.closest('[data-bnew]')){ odNew(); return; }
+    if(t.closest('[data-bback]')){ _bdStack=''; renderList(); return; }
+    if(el=t.closest('[data-bstack]')){ _bdStack=el.getAttribute('data-bstack'); _bdFlt=''; renderList(); return; }
+    if(el=t.closest('[data-bsec]')){ _bdSection=el.getAttribute('data-bsec'); _bdStack=''; _bdOpen=''; renderList(); return; }
+    if(el=t.closest('[data-bcols]')){ _bdCols=+el.getAttribute('data-bcols')||2; try{ sessionStorage.setItem('pd_bcols',_bdCols); }catch(_){} renderList(); return; }
+    if(t.closest('[data-bhdmenu]')){ _bdMenu=!_bdMenu; renderList(); return; }
+    if(t.closest('[data-bplace]')){ _bdPlace=(_bdPlace==='archive'?'board':'archive'); _bdStack=''; renderList(); return; }
+    if(t.closest('[data-brefresh]')){ renderList(); return; }
+    if(t.closest('[data-bskin],[data-bnewstack2],[data-bstpal],[data-bstackmenu]')){ odToast('Недоступно офлайн'); return; }
+    if(el=t.closest('[data-bflt]')){ var f=el.getAttribute('data-bflt'); _bdFlt=(f===_bdFlt?'':f); renderList(); return; }
+    if(el=t.closest('[data-bempty]')){ var a=el.getAttribute('data-bempty'); if(a==='add') odNew(); else if(a==='clr'||a==='clrsearch'){ _bdFlt=''; renderList(); } else if(a==='place'){ _bdPlace='board'; renderList(); } else renderList(); return; }
+    if(el=t.closest('.bd-sticker[data-bchk]')){ odOpen(el.getAttribute('data-bchk')); return; }
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  odRebuild(); odBind();
+  var fb=document.getElementById('odFlush'); if(fb) fb.addEventListener('click', odFlush);
+  window.addEventListener('online', odNet); window.addEventListener('offline', odNet);
+  odNet(); renderList();
+});
+</script>
+</body></html>

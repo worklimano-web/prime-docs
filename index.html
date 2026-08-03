@@ -67,6 +67,11 @@
 <div id="stage"></div>
 <div id="pdpaper"></div>
 <script>
+/* ОФЛАЙН-РЕДИРЕКТ (аддитивно): нет сети при загрузке → уводим на офлайн-доску и НЕ поднимаем онлайн-журнал
+   (см. охранник у route('') внизу). Онлайн (PD_OFFLINE=false) — весь путь ниже как раньше, байт-в-байт.
+   SW заранее закэшировал offline.html, так что она открывается без сети (после первого онлайн-визита). */
+var PD_OFFLINE = (navigator.onLine === false);
+if (PD_OFFLINE) { try { location.replace('offline.html'); } catch(e){ location.href='offline.html'; } }
 /* A9 ТЁПЛЫЙ ШЕЛЛ: 3 iframe (journal/estimate/assemble), переключаем видимый + шлём целевому pdgo вместо
    перезагрузки. Ключевое: pdgo шлём на сохранённое из pdready окно app (e.source), НЕ на frame.contentWindow
    (2-уровневый GAS-iframe: contentWindow=sandbox, до кода app не доходит — проверено на форке).
@@ -149,6 +154,54 @@ function route(qs, isBack){
   if(!isBack) pushHist(qs);
 }
 function goBack(){ if(HIST.length>1){ HIST.pop(); route(HIST[HIST.length-1], true); } else { route('', true); } }   // некуда → журнал
+/* ═══ ОФЛАЙН-БУФЕР → ЖУРНАЛ (аддитивно) ═══
+   offline.html (тот же origin) копит черновики-стикеры в localStorage['pd_offline_drafts'] (synced!==true =
+   ещё не залито). Когда мы ОНЛАЙН и журнал готов (pdready), шлём их ему {pdFlush:[...]}; журнал создаёт
+   стикеры через google.script.run→pushDrafts (без CORS) и отвечает {pdFlushDone:r}. По ответу помечаем
+   залитое synced (сопоставляем по clientId). Весь блок ИНЕРТЕН, пока буфер пуст. */
+var OD_DRAFT_KEY = 'pd_offline_drafts', _pdFlushSent = false;
+function pdLoadDrafts(){ try{ var a=JSON.parse(localStorage.getItem(OD_DRAFT_KEY)||'[]'); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function pdUnsynced(list){ return (list||[]).filter(function(c){ return c && c.synced!==true; }); }
+/* форма под pushDrafts_: type:'sticker' + clientId(=локальный id черновика) + поля стикера/пунктов */
+function pdDraftPayload(c){
+  return { type:'sticker', clientId:String((c&&c.id)||''), title:(c&&c.title)||'', descr:(c&&c.descr)||'',
+    kind:(c&&c.kind)||'', color:(c&&c.color)||'', urgent:!!(c&&c.urgent), important:!!(c&&c.important),
+    note:!!(c&&c.note), section:(c&&c.section)||'work', due:(c&&c.due)||'', repeat:(c&&c.repeat)||'',
+    items:((c&&c.items)||[]).map(function(it){ return { task:(it&&it.task)||'', pct:+((it&&it.pct)||0),
+      exec:(it&&it.exec)||'', due:(it&&it.due)||'', d1:(it&&it.d1)||'', d2:(it&&it.d2)||'', note:(it&&it.note)||'' }; }) };
+}
+function pdFlushDrafts(appWin, org){
+  if(_pdFlushSent || !appWin) return;                        // одна попытка за загрузку
+  var unsynced=pdUnsynced(pdLoadDrafts()); if(!unsynced.length) return;   // пусто → онлайн-путь не меняется
+  _pdFlushSent=true;
+  try{ appWin.postMessage({ pdFlush: unsynced.map(pdDraftPayload) }, org||'*'); }catch(e){}
+}
+function pdMarkSynced(created){
+  if(!Array.isArray(created) || !created.length) return 0;
+  var ids={}; created.forEach(function(x){ if(x && x.clientId) ids[String(x.clientId)]=1; });
+  var list=pdLoadDrafts(), n=0;
+  list.forEach(function(c){ if(c && ids[String((c.id)||'')] && c.synced!==true){ c.synced=true; n++; } });
+  try{ localStorage.setItem(OD_DRAFT_KEY, JSON.stringify(list)); }catch(e){}
+  return n;
+}
+function pdOfflineToast(t){
+  var e=document.getElementById('pdOffToast');
+  if(!e){ e=document.createElement('div'); e.id='pdOffToast';
+    e.style.cssText='position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(10px);z-index:99999;'+
+      'background:#1B2A4E;color:#fff;font:600 13px system-ui,-apple-system,sans-serif;padding:10px 16px;border-radius:20px;'+
+      'opacity:0;pointer-events:none;transition:opacity .2s,transform .2s';
+    document.body.appendChild(e); }
+  e.textContent=t; e.style.opacity='1'; e.style.transform='translateX(-50%) translateY(0)';
+  clearTimeout(e._t); e._t=setTimeout(function(){ e.style.opacity='0'; e.style.transform='translateX(-50%) translateY(10px)'; }, 2400);
+}
+/* ответ журнала на заливку — отдельный слушатель (основной обработчик не трогаем). Инертен, пока не
+   пришёл pdFlushDone (а он приходит только если мы сами послали pdFlush из непустого буфера). */
+window.addEventListener('message', function(ev){
+  var d=ev.data; if(!d || !d.pdFlushDone) return;
+  if(!pdOriginOk(ev.origin)) return;                         // доверяем только google-домену (как pdpainted)
+  var r=d.pdFlushDone, n=pdMarkSynced(r && r.created);
+  if(n) pdOfflineToast('Залито '+n);
+});
 /* D139: печать без баннера — грузим /exec autoprint в отдельный iframe (в iframe баннера нет), приложение
    сигналит pdprintready → печатаем сверху (github.io). Тёплые экраны прячем, чтобы печаталась только форма. */
 var _pf=null, _pfTimer=null;
@@ -428,8 +481,9 @@ window.addEventListener('message', function(ev){
     rec.appWin=ev.source; rec.ready=true;                                       // окно app (не contentWindow)
     try{ ev.source.postMessage({ pdcaps:{ ver:3, share:!!(navigator.share && navigator.canShare), print:true, pdf:true, noshare:true, openurl:true } }, ev.origin||'*'); }catch(e){}   // D195/D301 · D303 (ver:3): умеем «Сохранить без отправки» (noshare) и «открыть файл с Диска» (openurl)
     if(rec.pending){ ev.source.postMessage({pdgo:rec.pending},'*'); rec.pending=null; }
+    if(d.screen==='journal') pdFlushDrafts(ev.source, ev.origin);   // ← ЕДИНСТВЕННАЯ добавка к онлайн-пути: залить офлайн-буфер (инертна, если буфер пуст)
   }
 });
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(function(){}); }
-route('');   // первый заход — журнал
+if(!PD_OFFLINE) route('');   // первый заход — журнал (офлайн — не поднимаем: уже ушли на offline.html)
 </script></body></html>
