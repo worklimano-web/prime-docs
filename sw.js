@@ -4,7 +4,7 @@
    Material Symbols → приложение открывается БЕЗ сети (стратегия cache-first).
    ⚠ Приложение живёт во вложенном iframe script.google.com — эти запросы НЕ трогаем (идут в сеть,
    как раньше). Кэшируем только СВОЙ origin (github.io) и хосты Google Fonts. */
-var CACHE = 'pd-shell-v1';                                  // ← поднимать при изменении precache-списка
+var CACHE = 'pd-shell-v2';                                  // ← поднимать при изменении precache-списка
 var SHELL = [
   './', 'index.html', 'offline.html', 'manifest.json',
   'icon-192.png', 'icon-512.png'
