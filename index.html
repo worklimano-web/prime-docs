@@ -71,13 +71,31 @@
    (см. охранник у route('') внизу). Онлайн (PD_OFFLINE=false) — весь путь ниже как раньше, байт-в-байт.
    SW заранее закэшировал offline.html, так что она открывается без сети (после первого онлайн-визита). */
 function pdGoOffline(){ try{ location.replace('offline.html'); }catch(e){ try{ location.href='offline.html'; }catch(_){} } }
+var _pdRouted=false;
+/* R16: при плохой/нет связи НЕ уводим МОЛЧА на офлайн-доску — спрашиваем выбор (владелец видит, что связь есть, просто медленная). */
+function pdOfflinePrompt(){
+  if(document.getElementById('pdOffAsk')) return;   // не дублировать
+  var d=document.createElement('div'); d.id='pdOffAsk';
+  d.style.cssText='position:fixed;inset:0;z-index:100000;background:rgba(18,24,38,.90);display:flex;align-items:center;justify-content:center;padding:22px;font-family:Archivo,system-ui,sans-serif';
+  d.innerHTML='<div style="background:#fff;border-radius:16px;max-width:340px;width:100%;padding:24px 20px 18px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.4)">'
+    +'<div style="font-size:40px;line-height:1">📶</div>'
+    +'<div style="font-size:17px;font-weight:800;color:#1B2A4E;margin:10px 0 6px">Связь плохая или отсутствует</div>'
+    +'<div style="font-size:13.5px;color:#5B6472;line-height:1.5;margin-bottom:18px">Не удалось быстро подтвердить интернет. Что открыть?</div>'
+    +'<button id="pdOffApp" style="display:block;width:100%;padding:13px;border-radius:10px;border:1px solid #B9922F;background:#C9A961;color:#3a2f12;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;margin-bottom:10px">Открыть приложение</button>'
+    +'<button id="pdOffNotes" style="display:block;width:100%;padding:13px;border-radius:10px;border:1px solid #C3CEE6;background:#fff;color:#1B2A4E;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">Стартовый экран (заметки офлайн)</button>'
+  +'</div>';
+  document.body.appendChild(d);
+  var rm=function(){ if(d.parentNode)d.parentNode.removeChild(d); };
+  document.getElementById('pdOffApp').onclick=function(){ PD_OFFLINE=false; rm(); if(!_pdRouted){ _pdRouted=true; try{ route(''); }catch(e){} } };   // связь есть — открываем приложение (если ещё не поднято)
+  document.getElementById('pdOffNotes').onclick=function(){ rm(); pdGoOffline(); };   // офлайн-доска заметок
+}
 var PD_OFFLINE = (navigator.onLine === false);
-if (PD_OFFLINE) { pdGoOffline(); }
+if (PD_OFFLINE) { pdOfflinePrompt(); }
 else {
   /* navigator.onLine НЕНАДЁЖЕН (в авиарежиме телефон часто врёт true) → активная проба реальной связи с бэкендом.
      Онлайн-путь НЕ задерживаем: приложение грузится параллельно; если связи нет (reject/таймаут) — уходим на офлайн-доску. */
   (function(){
-    var done=false, fin=function(off){ if(done)return; done=true; if(off){ PD_OFFLINE=true; pdGoOffline(); } };
+    var done=false, fin=function(off){ if(done)return; done=true; if(off){ PD_OFFLINE=true; pdOfflinePrompt(); } };   // R16: проба не подтвердила связь → спросить выбор, а не молча в офлайн
     var to=setTimeout(function(){ fin(true); }, 3500);
     try{
       fetch('https://script.google.com/macros/s/AKfycbzRhx3sp9dnPTvmUTmRmsnBgRzQxJBo98T6jNN59a0AJFpSGiMwvSsfwy8B1oe2a1G--g/exec?diag=unlockcheck', { mode:'no-cors', cache:'no-store' })
@@ -107,6 +125,7 @@ function bootUrl(screen, qs){ if(screen==='journal') return EXEC + withTok(/[?&]
 var _splashGone=false;
 function hideSplash(){
   if(_splashGone) return; _splashGone=true;
+  var _oa=document.getElementById('pdOffAsk'); if(_oa&&_oa.parentNode)_oa.parentNode.removeChild(_oa);   // R16: приложение показалось → связь есть, окно выбора офлайна больше не нужно
   document.body.classList.add('pdshown');            // рамка проявляется
   var l=document.getElementById('ld'); if(!l) return;
   l.classList.add('gone');
@@ -502,5 +521,5 @@ if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catc
 /* Страховка: приложение изнутри iframe при СЕТЕВОЙ ошибке записи шлёт наверх {pdOffline} — уходим на офлайн-доску
    (кросс-origin iframe сам сменить top.location не может). Ловит случай «приложение уже открыто/тёплый шелл». */
 window.addEventListener('message', function(ev){ try{ if(ev.data && ev.data.pdOffline) pdGoOffline(); }catch(e){} });
-if(!PD_OFFLINE) route('');   // первый заход — журнал (офлайн — не поднимаем: уже ушли на offline.html)
+if(!PD_OFFLINE){ _pdRouted=true; route(''); }   // первый заход — журнал (офлайн — не поднимаем: уже ушли на offline.html) · R16: _pdRouted, чтобы окно выбора офлайна не роутило повторно
 </script></body></html>
