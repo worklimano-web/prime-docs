@@ -507,8 +507,10 @@ window.addEventListener('message', function(ev){
     if(d.screen==='journal') pdFlushDrafts(ev.source, ev.origin);   // ← ЕДИНСТВЕННАЯ добавка к онлайн-пути: залить офлайн-буфер (инертна, если буфер пуст)
   }
 });
-/* R16 зам.: офлайн ОТКЛЮЧЁН — SW снимаем (kill-switch sw.js очистит кэш и разрегистрируется). */
-if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(function(){}); navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ /* активирует новый kill-switch */ r.update&&r.update(); }); }).catch(function(){}); }catch(e){} }
+/* R16 зам.: офлайн ОТКЛЮЧЁН — SW НЕ регистрируем (иначе kill-switch при своём reload зарегистрировался бы
+   снова = петля перезагрузок). Только снимаем любой существующий SW; на устройствах со старой закэшированной
+   обёрткой браузер сам обновит sw.js до kill-switch (тот доснимет кэш и разрегистрируется). Без офлайна и без петли. */
+if('serviceWorker' in navigator){ try{ navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ try{ r.unregister(); }catch(e){} }); }).catch(function(){}); }catch(e){} }
 /* Страховка: приложение изнутри iframe при СЕТЕВОЙ ошибке записи шлёт наверх {pdOffline} — уходим на офлайн-доску
    (кросс-origin iframe сам сменить top.location не может). Ловит случай «приложение уже открыто/тёплый шелл». */
 window.addEventListener('message', function(ev){ try{ if(ev.data && ev.data.pdOffline){ /* R16: авто-офлайн УБРАН — приложение НЕ уводим в офлайн; владелец открывает офлайн вручную (кнопка «📴 Офлайн» внизу). */ } }catch(e){} });
