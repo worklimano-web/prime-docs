@@ -64,7 +64,6 @@
 <body>
 <div id="ld">Загрузка PRIME DOCS…</div>
 <div class="pdbar" id="bar"><span class="pdnav" id="prev">‹</span><span class="pdtabs" id="tabs"></span><span class="pdnav" id="next">›</span></div>
-<div id="pdOffBtn" title="Открыть офлайн-доску (заметки без интернета)" style="position:fixed;left:10px;bottom:10px;z-index:99998;background:rgba(27,42,78,.8);color:#fff;font:600 12px/1 Archivo,system-ui,sans-serif;padding:8px 12px;border-radius:20px;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.25);opacity:.7;-webkit-tap-highlight-color:transparent">📴 Офлайн</div>
 <div id="stage"></div>
 <div id="pdpaper"></div>
 <script>
@@ -94,7 +93,7 @@ function pdOfflinePrompt(){
    офлайн), из-за чего приложение само уводило на офлайн-доску при живой связи. По решению владельца: приложение ВСЕГДА грузится
    ОНЛАЙН; офлайн-доску владелец открывает ТОЛЬКО ВРУЧНУЮ — кнопка «📴 Офлайн» внизу слева (pdGoOffline). pdOfflinePrompt/проба не вызываются. */
 var PD_OFFLINE = false;
-(function(){ var _ob=document.getElementById('pdOffBtn'); if(_ob)_ob.onclick=function(){ pdGoOffline(); }; })();
+/* R16 зам.: офлайн ОТКЛЮЧЁН по решению владельца — кнопка «📴 Офлайн» убрана, точки входа в офлайн нет. */
 /* A9 ТЁПЛЫЙ ШЕЛЛ: 3 iframe (journal/estimate/assemble), переключаем видимый + шлём целевому pdgo вместо
    перезагрузки. Ключевое: pdgo шлём на сохранённое из pdready окно app (e.source), НЕ на frame.contentWindow
    (2-уровневый GAS-iframe: contentWindow=sandbox, до кода app не доходит — проверено на форке).
@@ -508,7 +507,8 @@ window.addEventListener('message', function(ev){
     if(d.screen==='journal') pdFlushDrafts(ev.source, ev.origin);   // ← ЕДИНСТВЕННАЯ добавка к онлайн-пути: залить офлайн-буфер (инертна, если буфер пуст)
   }
 });
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(function(){}); }
+/* R16 зам.: офлайн ОТКЛЮЧЁН — SW снимаем (kill-switch sw.js очистит кэш и разрегистрируется). */
+if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js').catch(function(){}); navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ /* активирует новый kill-switch */ r.update&&r.update(); }); }).catch(function(){}); }catch(e){} }
 /* Страховка: приложение изнутри iframe при СЕТЕВОЙ ошибке записи шлёт наверх {pdOffline} — уходим на офлайн-доску
    (кросс-origin iframe сам сменить top.location не может). Ловит случай «приложение уже открыто/тёплый шелл». */
 window.addEventListener('message', function(ev){ try{ if(ev.data && ev.data.pdOffline){ /* R16: авто-офлайн УБРАН — приложение НЕ уводим в офлайн; владелец открывает офлайн вручную (кнопка «📴 Офлайн» внизу). */ } }catch(e){} });
