@@ -138,11 +138,12 @@ function showFrame(screen){ Object.keys(SCREENS).forEach(function(k){ var r=SCRE
    Панель появляется ТОЛЬКО при 2+ открытых экранах — при одном поведение как раньше. */
 var OPEN=[], CUR='';
 var LBL={ journal:'Журнал', estimate:'Смета', assemble:'Документ', checklist:'Чек-лист' };   // D185
+var LBL_DYN={};   // D469: заголовок вкладки, присланный экраном — перекрывает статичный LBL
 function renderBar(){
   document.body.classList.toggle('multi', OPEN.length>1);
   var t=document.getElementById('tabs'); if(!t) return;
   t.innerHTML=OPEN.map(function(s){
-    return '<span class="pdtab'+(s===CUR?' on':'')+'" data-s="'+s+'">'+(LBL[s]||s)+(s==='journal'?'':'<i data-x="'+s+'" title="Закрыть">✕</i>')+'</span>';
+    return '<span class="pdtab'+(s===CUR?' on':'')+'" data-s="'+s+'">'+(LBL_DYN[s]||LBL[s]||s)+(s==='journal'?'':'<i data-x="'+s+'" title="Закрыть">✕</i>')+'</span>';
   }).join('');
   var i=OPEN.indexOf(CUR), pv=document.getElementById('prev'), nx=document.getElementById('next');
   if(pv) pv.className='pdnav'+(i<=0?' off':'');
@@ -493,7 +494,8 @@ window.addEventListener('message', function(ev){
   }
   if(typeof d.pdprint==='string'){ startPrint(d.pdprint); return; }              // D139: печать через обёртку
   if(d.pdprintready){ doPrint(); return; }
-  if(d.pdback){ goBack(); return; }                                            // «Назад» из экрана → предыдущий по стеку
+  if(d.pdback){ goBack(); return; }
+  if(typeof d.pdtitle==='string' && d.screen && LBL[d.screen]!=null){ LBL_DYN[d.screen]=d.pdtitle.slice(0,24); renderBar(); return; }   // D469: экран прислал тип документа → в ярлык вкладки                                            // «Назад» из экрана → предыдущий по стеку
   if(typeof d.pdnav==='string' && /^(\?[\w=&%.\-]*)?$/.test(d.pdnav)){ route(d.pdnav); return; }
   if(d.pdpainted){ if(pdOriginOk(ev.origin)) hideSplash(); return; }            // экран ОТРИСОВАЛ данные → плавно снимаем заставку
   if(d.pdready && d.screen && SCREENS[d.screen]){
