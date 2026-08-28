@@ -226,6 +226,44 @@ window.addEventListener('message', function(ev){
   var r=d.pdFlushDone, n=pdMarkSynced(r && r.created);
   if(n) pdOfflineToast('Залито '+n);
 });
+/* D523 ПРИЁМ СКАНА ИЗ СИСТЕМНОГО «ПОДЕЛИТЬСЯ» (Adobe Scan → PRIME DOCS).
+   Телефон отправляет файл POST-ом на ./share, его ловит service worker и кладёт в свой кэш, а нас
+   открывает с меткой ?shared=1. Здесь мы этот файл забираем, переводим в строку и отдаём ЖУРНАЛУ,
+   когда он доложит о готовности (pdready). Журнал сам решит, что с ним делать.
+   Всё обёрнуто в try/catch и работает только по метке: без «поделиться» этот код не выполняется. */
+var _pdShare=null;
+(function(){
+  try{
+    if(location.search.indexOf('shared=')<0 || !window.caches) return;
+    caches.open('pd-share').then(function(c){
+      return c.match('shared-meta').then(function(mr){
+        if(!mr) return null;
+        return mr.json().then(function(meta){
+          if(!meta || !meta.file) return { meta:meta||{}, b64:'' };
+          return c.match('shared-file').then(function(fr){
+            if(!fr) return { meta:meta, b64:'' };
+            return fr.arrayBuffer().then(function(buf){
+              var b=new Uint8Array(buf), s='', CH=8192;
+              for(var i=0;i<b.length;i+=CH) s+=String.fromCharCode.apply(null, b.subarray(i,i+CH));
+              return { meta:meta, b64:btoa(s) };
+            });
+          });
+        });
+      });
+    }).then(function(r){
+      if(!r) return;
+      _pdShare={ name:(r.meta.name||'scan.pdf'), mime:(r.meta.mime||'application/pdf'), text:(r.meta.text||''), b64:r.b64 };
+      var rec=SCREENS && SCREENS.journal;
+      if(rec && rec.ready && rec.appWin) pdSharePush(rec.appWin, '*');   // журнал успел прогреться раньше нас
+      try{ caches.open('pd-share').then(function(c){ c.delete('shared-file'); c.delete('shared-meta'); }); }catch(e){}
+      try{ history.replaceState(null,'', './'); }catch(e){}              // метку из адреса убираем, чтобы не повторилось
+    }).catch(function(){});
+  }catch(e){}
+})();
+function pdSharePush(win, org){
+  if(!_pdShare || !win) return;
+  try{ win.postMessage({ pdshared:_pdShare }, org||'*'); _pdShare=null; }catch(e){}
+}
 /* D139: печать без баннера — грузим /exec autoprint в отдельный iframe (в iframe баннера нет), приложение
    сигналит pdprintready → печатаем сверху (github.io). Тёплые экраны прячем, чтобы печаталась только форма. */
 var _pf=null, _pfTimer=null;
@@ -507,12 +545,15 @@ window.addEventListener('message', function(ev){
     try{ ev.source.postMessage({ pdcaps:{ ver:3, share:!!(navigator.share && navigator.canShare), print:true, pdf:true, noshare:true, openurl:true } }, ev.origin||'*'); }catch(e){}   // D195/D301 · D303 (ver:3): умеем «Сохранить без отправки» (noshare) и «открыть файл с Диска» (openurl)
     if(rec.pending){ ev.source.postMessage({pdgo:rec.pending},'*'); rec.pending=null; }
     if(d.screen==='journal') pdFlushDrafts(ev.source, ev.origin);   // ← ЕДИНСТВЕННАЯ добавка к онлайн-пути: залить офлайн-буфер (инертна, если буфер пуст)
+    if(d.screen==='journal') pdSharePush(ev.source, ev.origin);     // D523: пришёл скан из системного «Поделиться» — отдать журналу
   }
 });
-/* R16 зам.: офлайн ОТКЛЮЧЁН — SW НЕ регистрируем (иначе kill-switch при своём reload зарегистрировался бы
-   снова = петля перезагрузок). Только снимаем любой существующий SW; на устройствах со старой закэшированной
-   обёрткой браузер сам обновит sw.js до kill-switch (тот доснимет кэш и разрегистрируется). Без офлайна и без петли. */
-if('serviceWorker' in navigator){ try{ navigator.serviceWorker.getRegistrations().then(function(rs){ rs.forEach(function(r){ try{ r.unregister(); }catch(e){} }); }).catch(function(){}); }catch(e){} }
+/* R17 D543 (решение владельца): SW снова РЕГИСТРИРУЕМ — но исключительно ради приёма файла из
+   системного «Поделиться»: без него Android не покажет PRIME DOCS в списке, а POST с файлом
+   принять на статическом хостинге больше нечем. Офлайн НЕ возвращается: новый sw.js ничего не
+   кэширует, GET не перехватывает и при активации сносит все старые кэши. Прежний kill-switch на
+   устройствах снимет сам себя, после чего встанет этот. */
+if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js', { scope:'./' }).catch(function(){}); }catch(e){} }
 /* Страховка: приложение изнутри iframe при СЕТЕВОЙ ошибке записи шлёт наверх {pdOffline} — уходим на офлайн-доску
    (кросс-origin iframe сам сменить top.location не может). Ловит случай «приложение уже открыто/тёплый шелл». */
 window.addEventListener('message', function(ev){ try{ if(ev.data && ev.data.pdOffline){ /* R16: авто-офлайн УБРАН — приложение НЕ уводим в офлайн; владелец открывает офлайн вручную (кнопка «📴 Офлайн» внизу). */ } }catch(e){} });
