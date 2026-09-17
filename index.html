@@ -468,6 +468,33 @@ function pdRenderPdfBlob(html, css, opts){   // офскрин-рендер бл
 /* D301: onData — файл отдаётся приложению СРАЗУ после сборки, ДО «Поделиться» (приложение кладёт его
    на Диск). Почему до: пока открыт системный лист «Поделиться», страница может быть заморожена, а если
    владелец уйдёт в другое приложение и не вернётся — сохранение на Диск не состоялось бы вовсе. */
+/* ⚠ D663: ОТПРАВИТЬ ГОТОВЫЙ ФАЙЛ. Раньше обёртка умела только одно: собрать PDF из разметки и
+   тут же отдать его в «Поделиться». Поэтому каждая отправка реестра означала пересборку на минуту,
+   хотя нужный PDF уже лежал на Диске. Теперь приложение может прислать сам файл (в base64), и мы
+   просто отдаём его в системное «Поделиться» — без рисования страниц.
+   Файл приходит от НАШЕГО окна (проверка isOurAppWin у вызова), тип жёстко PDF. */
+function shareReadyFile(o){
+  return new Promise(function(resolve){
+    var b64=String((o&&o.base64)||'');
+    if(!b64){ resolve({ok:false,msg:'файл не пришёл'}); return; }
+    var name=pdSanitizeName((o&&o.filename)||'PRIME DOCS')+'.pdf';
+    var title=String((o&&o.title)||name).slice(0,120);
+    var blob;
+    try{
+      var bin=atob(b64), len=bin.length, arr=new Uint8Array(len);
+      for(var i=0;i<len;i++) arr[i]=bin.charCodeAt(i);
+      blob=new Blob([arr], {type:'application/pdf'});
+    }catch(e){ resolve({ok:false,msg:'файл не прочитался'}); return; }
+    var file=new File([blob], name, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      navigator.share({files:[file], title:title}).then(function(){ resolve({ok:true,msg:'Отправлено'}); })
+        .catch(function(err){
+          if(err && err.name==='AbortError'){ resolve({ok:true,msg:'Отправка отменена'}); return; }
+          pdDownloadBlob(blob,name); resolve({ok:true,msg:'«Поделиться» не вышло — PDF скачан'});
+        });
+    } else { pdDownloadBlob(blob,name); resolve({ok:true,msg:'PDF скачан — приложи вручную'}); }
+  });
+}
 function sharePaper(o, onData){
   return new Promise(function(resolve){
     if(!o || typeof o.html!=='string' || !o.html){ resolve({ok:false,msg:'нечего отправить'}); return; }
@@ -514,6 +541,13 @@ window.addEventListener('message', function(ev){
       .then(function(r){ try{ _sSrc.postMessage({ pdshareok:!!(r&&r.ok), msg:(r&&r.msg)||'' }, _sOrg||'*'); }catch(e){} });
     return;
   }
+  if(d.pdsharefile){                                                            // D663: отправить готовый PDF (без пересборки)
+    if(!isOurAppWin(ev.source)) return;
+    var _fSrc=ev.source, _fOrg=ev.origin;
+    shareReadyFile(d.pdsharefile)
+      .then(function(r){ try{ _fSrc.postMessage({ pdshareok:!!(r&&r.ok), msg:(r&&r.msg)||'' }, _fOrg||'*'); }catch(e){} });
+    return;
+  }
   if(typeof d.pdopenurl==='string'){                                            // D303: открыть сохранённый PDF реестра с Диска в НОВОЙ вкладке (top-level; из GAS-iframe window.open ненадёжен)
     if(!isOurAppWin(ev.source)) return;                                         // только окна наших экранов (журнал/бланк) — как у печати/шаринга
     var u=d.pdopenurl;
@@ -542,7 +576,8 @@ window.addEventListener('message', function(ev){
     if(!pdIsDescendantOf(ev.source, rec.frame)) return;                         // …и окно реально живёт в НАШЕЙ рамке (решающая проверка)
     if(rec.appWin && rec.appWin!==ev.source) return;                            // не переписывать уже зарегистрированное окно экрана
     rec.appWin=ev.source; rec.ready=true;                                       // окно app (не contentWindow)
-    try{ ev.source.postMessage({ pdcaps:{ ver:3, share:!!(navigator.share && navigator.canShare), print:true, pdf:true, noshare:true, openurl:true } }, ev.origin||'*'); }catch(e){}   // D195/D301 · D303 (ver:3): умеем «Сохранить без отправки» (noshare) и «открыть файл с Диска» (openurl)
+    try{ ev.source.postMessage({ pdcaps:{ ver:4, share:!!(navigator.share && navigator.canShare), print:true, pdf:true, noshare:true, openurl:true,
+      sharefile:!!(navigator.share && navigator.canShare) } }, ev.origin||'*'); }catch(e){}   /* D663 (ver:4): умеем отправить ГОТОВЫЙ файл с Диска, не пересобирая */   // D195/D301 · D303 (ver:3): умеем «Сохранить без отправки» (noshare) и «открыть файл с Диска» (openurl)
     if(rec.pending){ ev.source.postMessage({pdgo:rec.pending},'*'); rec.pending=null; }
     if(d.screen==='journal') pdFlushDrafts(ev.source, ev.origin);   // ← ЕДИНСТВЕННАЯ добавка к онлайн-пути: залить офлайн-буфер (инертна, если буфер пуст)
     if(d.screen==='journal') pdSharePush(ev.source, ev.origin);     // D523: пришёл скан из системного «Поделиться» — отдать журналу
