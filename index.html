@@ -490,9 +490,15 @@ function shareReadyFile(o){
       navigator.share({files:[file], title:title}).then(function(){ resolve({ok:true,msg:'Отправлено'}); })
         .catch(function(err){
           if(err && err.name==='AbortError'){ resolve({ok:true,msg:'Отправка отменена'}); return; }
+          /* ⚠ D665: телефон отказывает, если между касанием и «Поделиться» прошла сетевая пауза —
+             он считает, что жеста уже не было (NotAllowedError/SecurityError). Раньше мы в этом
+             случае МОЛЧА скачивали файл, и владелец получал «скачать ещё раз?» вместо отправки.
+             Теперь просто просим нажать ещё раз: файл уже в руках, второй тап уходит мгновенно. */
+          var _a=err&&(err.name==='NotAllowedError'||err.name==='SecurityError'||err.name==='InvalidStateError');
+          if(_a){ resolve({ok:false,retry:true,msg:'Нажми «Отправить» ещё раз — файл готов'}); return; }
           pdDownloadBlob(blob,name); resolve({ok:true,msg:'«Поделиться» не вышло — PDF скачан'});
         });
-    } else { pdDownloadBlob(blob,name); resolve({ok:true,msg:'PDF скачан — приложи вручную'}); }
+    } else { pdDownloadBlob(blob,name); resolve({ok:true,msg:'Телефон не умеет делиться файлом — PDF скачан'}); }
   });
 }
 function sharePaper(o, onData){
