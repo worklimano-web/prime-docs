@@ -258,23 +258,31 @@ var _pdShare=null;
       return c.match('shared-meta').then(function(mr){
         if(!mr) return null;
         return mr.json().then(function(meta){
-          if(!meta || !meta.file) return { meta:meta||{}, b64:'' };
-          return c.match('shared-file').then(function(fr){
-            if(!fr) return { meta:meta, b64:'' };
-            return fr.arrayBuffer().then(function(buf){
-              var b=new Uint8Array(buf), s='', CH=8192;
-              for(var i=0;i<b.length;i+=CH) s+=String.fromCharCode.apply(null, b.subarray(i,i+CH));
-              return { meta:meta, b64:btoa(s) };
+          if(!meta || !meta.file) return { meta:meta||{}, b64:'', list:[] };
+          /* D747 (Ф8): несколько файлов — читаем все shared-file-i (новый воркер); старый воркер клал один shared-file */
+          var keys=(meta.files && meta.files.length) ? meta.files.map(function(x,i){ return 'shared-file-'+i; }) : ['shared-file'];
+          return Promise.all(keys.map(function(k){
+            return c.match(k).then(function(fr){
+              if(!fr) return '';
+              return fr.arrayBuffer().then(function(buf){
+                var b=new Uint8Array(buf), s='', CH=8192;
+                for(var i=0;i<b.length;i+=CH) s+=String.fromCharCode.apply(null, b.subarray(i,i+CH));
+                return btoa(s);
+              });
             });
-          });
+          })).then(function(list){ return { meta:meta, b64:list[0]||'', list:list }; });
         });
       });
     }).then(function(r){
       if(!r) return;
       _pdShare={ name:(r.meta.name||'scan.pdf'), mime:(r.meta.mime||'application/pdf'), text:(r.meta.text||''), b64:r.b64 };
+      /* D747 (Ф8): files — все файлы отправки (приложение D747); старые поля выше = первый файл (прежнее приложение) */
+      var _fl=(r.meta.files && r.meta.files.length) ? r.meta.files : [{ name:_pdShare.name, mime:_pdShare.mime }];
+      _pdShare.files=_fl.map(function(x,i){ return { name:(x.name||_pdShare.name), mime:(x.mime||_pdShare.mime), b64:(r.list[i]||'') }; }).filter(function(x){ return x.b64; });
+      _pdShare.total=+r.meta.total||_pdShare.files.length;
       var rec=SCREENS && SCREENS.journal;
       if(rec && rec.ready && rec.appWin) pdSharePush(rec.appWin, '*');   // журнал успел прогреться раньше нас
-      try{ caches.open('pd-share').then(function(c){ c.delete('shared-file'); c.delete('shared-meta'); }); }catch(e){}
+      try{ caches.open('pd-share').then(function(c){ return c.keys().then(function(ks){ ks.forEach(function(k){ c.delete(k); }); }); }); }catch(e){}   // D747: все ключи кармана (shared-file-i тоже)
       try{ history.replaceState(null,'', './'); }catch(e){}              // метку из адреса убираем, чтобы не повторилось
     }).catch(function(){});
   }catch(e){}
