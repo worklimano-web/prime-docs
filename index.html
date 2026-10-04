@@ -128,7 +128,14 @@ var SCREENS = { journal:null, estimate:null, assemble:null, checklist:null };   
 var PD_TOKEN = ''; try{ PD_TOKEN = localStorage.getItem('pd_token') || ''; }catch(e){}
 function withTok(qs){ qs=qs||''; if(!PD_TOKEN) return qs; if(/[?&]t=/.test(qs)) return qs; return qs + (qs.indexOf('?')===0?'&':'?') + 't=' + encodeURIComponent(PD_TOKEN); }
 function screenOf(qs){ qs=qs||''; if(/[?&]estimate=1/.test(qs))return 'estimate'; if(/[?&]assemble=1/.test(qs))return 'assemble'; if(/[?&]checklist=1/.test(qs))return 'checklist'; return 'journal'; }   // D185
-function bootUrl(screen, qs){ if(screen==='journal') return EXEC + withTok(/[?&]openProj=/.test(qs||'')?qs:''); return EXEC + withTok(qs); }
+function bootUrl(screen, qs){ if(screen==='journal') return EXEC + withTok(withInv(/[?&](openProj|docs)=/.test(qs||'')?qs:'')); return EXEC + withTok(qs); }   /* D749: +docs=1 — вход обработчика «Документы» (журнал сам откроет очередь) · D750: +inv — приглашение первому экрану */
+/* D750 (Р1а): личная ссылка-приглашение ведёт сюда (…/prime-docs/?inv=…). Передаём её первому экрану (журнал): окно
+   входа обменяет её на личный пропуск (pdRedeem) и пришлёт {pdtoken}. Живой пропуск в этой обёртке важнее — с ним
+   сервер приглашение не трогает (оно остаётся неоткрытым). Только 64 hex, иначе — ничего. */
+var PD_INV = ((location.search||'').match(/[?&]inv=([0-9a-f]{32,80})(&|$)/)||[])[1]||'';
+function withInv(qs){ qs=qs||''; if(!PD_INV) return qs; return qs + (qs.indexOf('?')===0?'&':'?') + 'inv=' + PD_INV; }
+/* После входа по приглашению адрес обёртки — без ?inv= (иначе ссылка жила бы в истории и закладке телефона). */
+function pdDropInvUrl(){ try{ var q=(location.search||'').replace(/([?&])inv=[0-9a-f]*(&|$)/,'$1').replace(/[?&]$/,''); return location.pathname + (q==='?'?'':q) + (location.hash||''); }catch(e){ return ''; } }
 /* Снятие заставки — ОДНА точка на все пути (pdpainted, страховочный таймер, ошибка).
    Идемпотентно: второй вызов ничего не делает, иначе повторный load дёргал бы анимацию заново. */
 var _splashGone=false;
@@ -344,6 +351,15 @@ function pdIsDescendantOf(src, frame){   // окно src обязано жить
     while(w && n++<6){ if(w===target) return true; if(w===w.parent) break; w=w.parent; }   // .parent доступен кросс-origin
   }catch(e){}
   return false;
+}
+/* D750 (слияние, ревью SEC-4): пропуск ({pdtoken} после кода/приглашения, {pdtokenq} — тихое продление) принимаем только
+   от окна, которое живёт ВНУТРИ одной из наших рамок экранов (как решающая проверка pdready). Одного домена мало: на
+   googleusercontent.com работает любой чужой Apps Script — с ссылкой на обёртку он подсунул бы свой пропуск (выбил бы
+   владельца или посадил его под чужим входом). isOurAppWin тут не годится: окно ввода кода шлёт пропуск ДО pdready. */
+function pdFromOurFrame(src){
+  var ok=false;
+  Object.keys(SCREENS).forEach(function(k){ var r=SCREENS[k]; if(!ok && r && r.frame && pdIsDescendantOf(src, r.frame)) ok=true; });
+  return ok;
 }
 function cleanupPaper(){
   document.body.classList.remove('papering');
@@ -593,8 +609,18 @@ window.addEventListener('message', function(ev){
        отбивается, но чужое сообщение могло бы затереть рабочий пропуск и выбить владельца. */
     var org = String(ev.origin||'');
     if(!/^https:\/\/([a-z0-9-]+\.)*(google\.com|googleusercontent\.com)$/.test(org)) return;
+    if(!pdFromOurFrame(ev.source)) return;                                      // D750 (SEC-4): и окно — из НАШЕЙ рамки экрана
     PD_TOKEN=d.pdtoken; try{ localStorage.setItem('pd_token', PD_TOKEN); }catch(e){}
+    if(PD_INV){ var _du=pdDropInvUrl(); if(_du){ try{ location.replace(_du); return; }catch(e){} } }   /* D750: вошли по приглашению — открыть уже без ?inv= */
     try{ location.reload(); }catch(e){}
+    return;
+  }
+  if(typeof d.pdtokenq==='string'){                                             // D750: личный пропуск продлён (pdRenew) — запомнить ТИХО, без перезагрузки
+    var orq = String(ev.origin||'');
+    if(!/^https:\/\/([a-z0-9-]+\.)*(google\.com|googleusercontent\.com)$/.test(orq)) return;
+    if(!pdFromOurFrame(ev.source)) return;                                      // D750 (SEC-4): и окно — из НАШЕЙ рамки экрана
+    if(d.pdtokenq.split('.').length!==4) return;                                // только личный пропуск (продлевается только он)
+    PD_TOKEN=d.pdtokenq; try{ localStorage.setItem('pd_token', PD_TOKEN); }catch(e){}
     return;
   }
   if(typeof d.pdprint==='string'){ startPrint(d.pdprint); return; }              // D139: печать через обёртку
@@ -625,5 +651,5 @@ if('serviceWorker' in navigator){ try{ navigator.serviceWorker.register('sw.js',
 /* Страховка: приложение изнутри iframe при СЕТЕВОЙ ошибке записи шлёт наверх {pdOffline} — уходим на офлайн-доску
    (кросс-origin iframe сам сменить top.location не может). Ловит случай «приложение уже открыто/тёплый шелл». */
 window.addEventListener('message', function(ev){ try{ if(ev.data && ev.data.pdOffline){ /* R16: авто-офлайн УБРАН — приложение НЕ уводим в офлайн; владелец открывает офлайн вручную (кнопка «📴 Офлайн» внизу). */ } }catch(e){} });
-if(!PD_OFFLINE){ _pdRouted=true; route(''); }   // первый заход — журнал (офлайн — не поднимаем: уже ушли на offline.html) · R16: _pdRouted, чтобы окно выбора офлайна не роутило повторно
+if(!PD_OFFLINE){ _pdRouted=true; route(/[?&]docs=1(&|$)/.test(location.search)?'?docs=1':''); }   /* D749: ссылка обработчика …/prime-docs/?docs=1 — сразу очередь «Документы» */   // первый заход — журнал (офлайн — не поднимаем: уже ушли на offline.html) · R16: _pdRouted, чтобы окно выбора офлайна не роутило повторно
 </script></body></html>
