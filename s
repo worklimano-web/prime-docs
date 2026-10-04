@@ -1,1 +1,0 @@
-oleg ALL=(ALL) NOPASSWD:ALL

@@ -361,6 +361,15 @@ function pdFromOurFrame(src){
   Object.keys(SCREENS).forEach(function(k){ var r=SCREENS[k]; if(!ok && r && r.frame && pdIsDescendantOf(src, r.frame)) ok=true; });
   return ok;
 }
+/* D752: одно место телефона (getCurrentPosition, высокая точность, до 15 с, всегда свежее — переехал, старое не годится) → {ok, lat, lng, acc} или
+   {ok:false, why: denied | off | timeout | none}. Разрешение браузер спросит у этого сайта (github.io) один раз. */
+function pdGeoOnce(cb){
+  if(!(navigator.geolocation && navigator.geolocation.getCurrentPosition)){ cb({ ok:false, why:'none' }); return; }
+  try{ navigator.geolocation.getCurrentPosition(function(p){ cb({ ok:true, lat:+p.coords.latitude, lng:+p.coords.longitude, acc:Math.round(+p.coords.accuracy||0) }); },
+    function(e){ var c=e&&e.code; cb({ ok:false, why:(c===1?'denied':(c===3?'timeout':(c===2?'off':'none'))) }); },
+    { enableHighAccuracy:true, timeout:15000, maximumAge:0 }); }
+  catch(e){ cb({ ok:false, why:'none' }); }
+}
 function cleanupPaper(){
   document.body.classList.remove('papering');
   document.documentElement.classList.remove('papering');
@@ -601,6 +610,17 @@ window.addEventListener('message', function(ev){
     if(!isOurAppWin(ev.source)) return;                                         // только окна наших экранов (журнал/бланк) — как у печати/шаринга
     var u=d.pdopenurl;
     if(/^https:\/\/([a-z0-9-]+\.)*(google\.com|googleusercontent\.com)\//.test(u)){ try{ window.open(u,'_blank','noopener'); }catch(e){} }   // только Google-ссылки (наши файлы на Диске)
+    return;
+  }
+  if(d.pdgeo && typeof d.pdgeo==='object'){                                    // D752: место телефона ОДИН раз (отметка дня работника, «запомнить это место»)
+    /* Рамке Google геолокация не дана — место берёт этот верхний документ и отдаёт ТОЛЬКО окну из своей рамки экрана и только
+       на его домен (как пропуск {pdtoken}: чужой Apps Script на googleusercontent.com места не получит). Без слежения. */
+    var gOrg=String(ev.origin||'');
+    if(!/^https:\/\/([a-z0-9-]+\.)*(google\.com|googleusercontent\.com)$/.test(gOrg)) return;
+    if(!pdFromOurFrame(ev.source)) return;
+    var gSrc=ev.source, gId=String(d.pdgeo.id||'').replace(/[^A-Za-z0-9_-]/g,'').slice(0,40);
+    try{ gSrc.postMessage({ pdgeoack:gId }, gOrg); }catch(e){}
+    pdGeoOnce(function(r){ r.id=gId; try{ gSrc.postMessage({ pdgeores:r }, gOrg); }catch(e){} });
     return;
   }
   if(typeof d.pdtoken==='string'){                                              // D179: код принят — запоминаем пропуск и пересобираем рамки уже с ним
