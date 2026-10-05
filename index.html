@@ -1,4 +1,20 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8">
+<script>
+/* ПЕРЕЕЗД НА СВОЙ СЕРВЕР (E15, deploy/switch/WRAPPER.md). '' — значок открывает приложение Google, как раньше.
+   Адрес — значок открывает новый сервер с теми же параметрами (?inv=…, ?docs=1). Откат — снова ''.
+   Аварийно, без выкладки обёртки: …/prime-docs/?gas=1 — старое приложение Google. */
+var PD_MOVED = 'https://pd.prime1.cy/';
+(function () { try {
+  var q = location.search || '';
+  if (!PD_MOVED || /[?&]gas=1(&|$)/.test(q)) return;
+  if (/[?&]shared=1(&|$)/.test(q)) {   /* файл «Поделиться» лежит в памяти СТАРОГО адреса — новому он не виден */
+    document.write('<p style="font:16px/1.4 system-ui,sans-serif;padding:24px">PRIME DOCS переехал. Откройте «Поделиться» ещё раз и выберите новый значок PRIME DOCS.</p>');
+    if (window.stop) window.stop();
+    return;
+  }
+  location.replace(PD_MOVED + q + (location.hash || ''));
+} catch (e) {} })();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>PRIME DOCS</title>
 <link rel="manifest" href="manifest.json">
